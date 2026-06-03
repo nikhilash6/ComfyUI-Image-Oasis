@@ -1,0 +1,30 @@
+[project]
+name = "comfyui-image-oasis"
+description = "All-in-one ComfyUI image generation node: switchable architecture (Flux, Qwen-Image-Edit, SD3, AuraFlow), tri-source model loading, LoRA stack, prompt enhancer, refiner pass, and optional upscale — in a single node."
+version = "1.0.0"
+license = { file = "LICENSE" }
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "NikoDemon80", email = "262659861+NikoDemon80@users.noreply.github.com" },
+]
+keywords = ["comfyui", "image-generation", "flux", "qwen-image-edit", "sd3", "auraflow"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics",
+]
+dependencies = [
+    "spandrel",
+    "spandrel-extra-arches",
+]
+
+[project.urls]
+Homepage = "https://github.com/NikoDemon80/ComfyUI-Image-Oasis"
+Repository = "https://github.com/NikoDemon80/ComfyUI-Image-Oasis"
+Issues = "https://github.com/NikoDemon80/ComfyUI-Image-Oasis/issues"

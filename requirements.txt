@@ -1,0 +1,29 @@
+# Image Oasis — Python dependencies
+#
+# Core runtime dependencies (torch, numpy, Pillow, aiohttp, comfy.*,
+# folder_paths) are provided by ComfyUI itself and are NOT listed here.
+#
+# Image Oasis is designed for graceful degradation: with none of the
+# packages below installed, the common-case flow still works
+# (checkpoint/diffusion model loading, sampling, refiner pass, and
+# algorithmic upscaling). Each dep below enables one specific feature; if
+# missing, that feature errors clearly at use-time — the node still loads.
+
+# Model-based upscaling for the Upscale section's "Model" mode.
+# Algorithmic upscaling (lanczos / bicubic / bilinear / nearest-exact / area)
+# does NOT require these.
+spandrel
+spandrel-extra-arches
+
+# Prompt enhancer ("magic wand") — local GGUF LLM that expands short prompts.
+# NOT enabled by default: the CUDA-accelerated install is toolkit-specific
+# (cu121 / cu122 / cu124 / etc.) and a plain `pip install` lands the CPU-only
+# wheel, which is much slower. See the README's "Prompt enhancer setup"
+# section for the install command matching your hardware.
+# llama-cpp-python
+
+# Non-pip dependency (NOT installable here):
+#   ComfyUI-GGUF — required for the GGUF source type. It's a separate
+#   ComfyUI custom node, not a pip package; install it via ComfyUI Manager
+#   or `git clone https://github.com/city96/ComfyUI-GGUF` into
+#   `ComfyUI/custom_nodes/`. Checkpoint and diffusion sources work without it.
