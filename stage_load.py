@@ -71,8 +71,17 @@ def _load_gguf_node(class_name, **explicit_kwargs):
 # ---------------------------------------------------------------------------
 
 def load_models(source_type, model_file, clip_file, vae_file,
-                clip_bundled, vae_bundled, weight_dtype, clip_type):
-    """Return (model, clip, vae)."""
+                clip_bundled, vae_bundled, weight_dtype, clip_type,
+                clip_file_2="", clip_file_3=""):
+    """Return (model, clip, vae).
+
+    clip_file_2 and clip_file_3 are optional. Empty = single-CLIP behavior
+    (today's path). One extra set = dual-CLIP, both extras set = triple-CLIP
+    (item 7). Dual/triple routed to either stock comfy.sd.load_clip (all
+    safetensors) or ComfyUI-GGUF's DualCLIPLoaderGGUF / TripleCLIPLoaderGGUF
+    (any GGUF — those loaders' load_data path handles mixed safetensors+GGUF
+    transparently).
+    """
     if not model_file:
         raise ValueError("[Image Oasis] No model file specified.")
 
@@ -111,19 +120,60 @@ def load_models(source_type, model_file, clip_file, vae_file,
         raise ValueError(f"[Image Oasis] Unknown source type: {source_type}")
 
     # ── CLIP ────────────────────────────────────────────────────────────────
+    # Multi-CLIP routing (item 7). When 2 or 3 slots are filled, dispatch to
+    # the right stock or GGUF loader. Any GGUF in the set → use ComfyUI-GGUF's
+    # dual/triple loader (its load_data path handles mixed safetensors+GGUF).
+    # All-safetensors → comfy.sd.load_clip with the full ckpt_paths list.
     clip_type_enum = getattr(
         comfy.sd.CLIPType, clip_type.upper(), comfy.sd.CLIPType.STABLE_DIFFUSION)
 
-    if clip_file and not clip_bundled:
-        if clip_file.lower().endswith(".gguf"):
-            clip_obj = _load_gguf_node("CLIPLoaderGGUF", clip_name=clip_file, type=clip_type)
-        else:
-            te_path = _find_text_encoder_path(clip_file)
-            if te_path:
-                clip_obj = comfy.sd.load_clip(
-                    ckpt_paths=[te_path],
-                    embedding_directory=folder_paths.get_folder_paths("embeddings"),
-                    clip_type=clip_type_enum)
+    if not clip_bundled:
+        slots = [f for f in (clip_file, clip_file_2, clip_file_3) if f]
+        if len(slots) == 1:
+            cf = slots[0]
+            if cf.lower().endswith(".gguf"):
+                clip_obj = _load_gguf_node("CLIPLoaderGGUF", clip_name=cf, type=clip_type)
+            else:
+                te_path = _find_text_encoder_path(cf)
+                if te_path:
+                    clip_obj = comfy.sd.load_clip(
+                        ckpt_paths=[te_path],
+                        embedding_directory=folder_paths.get_folder_paths("embeddings"),
+                        clip_type=clip_type_enum)
+        elif len(slots) == 2:
+            any_gguf = any(f.lower().endswith(".gguf") for f in slots)
+            if any_gguf:
+                # GGUF dual loader handles mixed safetensors+GGUF natively.
+                # Only refusal is scaled-fp8 + GGUF (raises NotImplementedError).
+                clip_obj = _load_gguf_node(
+                    "DualCLIPLoaderGGUF",
+                    clip_name1=slots[0], clip_name2=slots[1], type=clip_type,
+                )
+            else:
+                te_paths = [p for p in (_find_text_encoder_path(slots[0]),
+                                        _find_text_encoder_path(slots[1])) if p]
+                if len(te_paths) == 2:
+                    clip_obj = comfy.sd.load_clip(
+                        ckpt_paths=te_paths,
+                        embedding_directory=folder_paths.get_folder_paths("embeddings"),
+                        clip_type=clip_type_enum)
+        elif len(slots) == 3:
+            any_gguf = any(f.lower().endswith(".gguf") for f in slots)
+            if any_gguf:
+                clip_obj = _load_gguf_node(
+                    "TripleCLIPLoaderGGUF",
+                    clip_name1=slots[0], clip_name2=slots[1], clip_name3=slots[2],
+                    type=clip_type,
+                )
+            else:
+                te_paths = [p for p in (_find_text_encoder_path(slots[0]),
+                                        _find_text_encoder_path(slots[1]),
+                                        _find_text_encoder_path(slots[2])) if p]
+                if len(te_paths) == 3:
+                    clip_obj = comfy.sd.load_clip(
+                        ckpt_paths=te_paths,
+                        embedding_directory=folder_paths.get_folder_paths("embeddings"),
+                        clip_type=clip_type_enum)
 
     # ── VAE ──────────────────────────────────────────────────────────────────
     if vae_file and not vae_bundled:
@@ -194,7 +244,12 @@ def load_loras(model_obj, clip_obj, loras):
 
 def apply_model_sampling(model_obj, sampling, shift_val, cfgnorm_on=False):
     """Patch the model's sampling discretization. 'sampling' is one of
-    'flux' | 'sd3' | 'auraflow' | 'none'."""
+    'flux' | 'sd3' | 'auraflow' | 'none'.
+
+    Failures raise. Falling back to the unpatched model would let a Flux/SD3
+    model sample with the wrong discretization — garbage images with no
+    user-visible error, which is strictly worse than failing the run.
+    """
     if sampling == "none" and not cfgnorm_on:
         return model_obj
 
@@ -223,8 +278,9 @@ def apply_model_sampling(model_obj, sampling, shift_val, cfgnorm_on=False):
 
         return m
     except Exception as e:
-        print(f"[Image Oasis] Warning: sampling patch failed: {e}")
-        return model_obj
+        raise RuntimeError(
+            f"[Image Oasis] Sampling patch '{sampling}' failed: {e}. "
+            f"Check that the selected architecture matches the model.") from e
 
 
 # ---------------------------------------------------------------------------

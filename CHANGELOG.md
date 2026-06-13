@@ -1,0 +1,42 @@
+# Changelog
+
+## v1.1
+
+### Added
+- Added a new feature that lets you A/B compare the current image/batch against the previous image/batch with a draggable wipe slider in the output pane. You can also set any reference image as the compare base.
+- Added a new feature that puts a full Help panel inside the node - markdown guide with a category dropdown, scrollable, no separate window needed.
+- Added a new feature that surfaces multiple CLIP loader slots automatically based on the chosen architecture (1, 2, or 3 slots).
+- Added a new feature that lets you drag-and-drop or Ctrl+V images directly onto reference image slots.
+- Added a new feature that puts navigation arrows in the bottom-right corner of the output pane for stepping through multi-image batches.
+- Added a new feature that lets you drag-reorder preset cards via a 9-dot grip handle.
+- Added a new feature that lets you set trigger words per LoRA. Saved with the stack and prepended to your prompt automatically when the LoRA is enabled.
+
+### Improved
+- Improved the output-header buttons by unifying Generate, Randomize, Compare, and Save into equal-size square icons with a consistent hover behavior.
+- Improved the Generate and Compare buttons by giving them their own theme variables - they default to green, and the Background and Border sliders propagate to them when moved off-default.
+- Improved the execution timer by making it survive tab switches mid-generation. Switch away during a run, come back, and the clock picks up from real elapsed time.
+- Improved the negative-prompt skip label to make it clear that the Negative Prompt is what's being ignored when CFG = 1.
+- Improved the architecture tooltips with clearer descriptions; corrected the AuraFlow shift default callout to 3.0.
+- Improved the timer readout by left-justifying the text so milliseconds digits no longer jiggle the whole string.
+- Improved the Upscale section layout by reordering controls and hiding Method when in Model mode (and Up Model when in Algorithmic mode).
+
+### Fixed
+- Fixed a bug where the live preview rendered under the node body, overlapping controls and fighting with the compare slider. The right-side output pane is now the sole place the image is shown.
+- Fixed a bug that caused the generated image, execution highlight, and progress bar to appear under the wrong node on a different workflow tab when that node happened to share an internal ID with Image Oasis. Results are now delivered directly to the originating Image Oasis node regardless of which workflow tab you're on. (A brief execution highlight may still flash on a same-ID node during a run - it carries no image or progress fill and clears at completion.)
+
+### Known issues
+- The generated images no longer appear in the asset side panel. The image is still saved to the temp directory as normal.
+- The per-step progress bar no longer renders on the node. Step progress still prints to the ComfyUI console. The overall queue progress bar is unaffected.
+
+---
+
+## v1.0
+
+### Added
+- Initial release. A standalone all-in-one ComfyUI image generation node consolidating model loading, conditioning, sampling, refiner, upscale, and preview into a single monolithic node with no input/output sockets.
+- Supports Flux, Qwen-Image-Edit, SD3, AuraFlow, and Z-Image Turbo architectures across checkpoint, diffusion model, and GGUF sources.
+- Optional refiner pass and optional upscale (algorithmic or model-based).
+- Optional LLM-based prompt enhancer (Qwen3 GGUFs).
+- LoRA stack with per-LoRA model and CLIP strength.
+- Preset library for saving and loading configurations.
+- Per-node theme controls.

@@ -574,7 +574,12 @@ async def image_oasis_enhance(request):
                      "loads GGUF only. Convert to GGUF or select a .gguf model."
         }, status=400)
 
-    model_path = os.path.join(_llm_dir(), model_name)
+    # Containment check: model_name comes from the client; without it, `..`
+    # or an absolute path could point the loader at any file on disk.
+    base = os.path.realpath(_llm_dir())
+    model_path = os.path.realpath(os.path.join(base, model_name))
+    if model_path != base and not model_path.startswith(base + os.sep):
+        return web.json_response({"error": f"Invalid model path: {model_name}"}, status=400)
     if not os.path.isfile(model_path):
         return web.json_response({"error": f"Model not found: {model_name}"}, status=404)
 

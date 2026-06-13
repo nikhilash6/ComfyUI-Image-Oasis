@@ -14,8 +14,6 @@ import os
 import sys
 import importlib
 
-import comfy.samplers
-
 # Robust sibling imports.
 #
 # ComfyUI sometimes loads a custom-node package under a module name equal to its
@@ -168,6 +166,7 @@ def _load_input_image(filename):
 
 import hashlib as _hashlib
 import json as _json_cache
+import uuid as _uuid
 
 _RAWLOAD_CACHE = {}  # unique_id -> (key, model, clip, vae) — raw disk load only
 _LOAD_CACHE = {}     # unique_id -> (key, model, clip) — after LoRA + sampling patch
@@ -181,6 +180,36 @@ _COND_CACHE = {}   # unique_id -> (key, positive_cond, negative_cond)
 # miss (correct — the refiner must run), instead of re-sampling the base too.
 _BASE_CACHE = {}    # unique_id -> (key, base_latent)
 _REFINED_CACHE = {}  # unique_id -> (key, image, latent)
+
+_ALL_CACHES = (_RAWLOAD_CACHE, _LOAD_CACHE, _COND_CACHE, _BASE_CACHE, _REFINED_CACHE)
+
+# Bounded LRU over node instances. Each unique_id pins a full model set in RAM;
+# entries used to live forever, so swapping between workflows all day (each with
+# its own node ids) crept RAM upward until restart. Cap the number of live
+# instances: touching an id on each run keeps the active ones fresh, and the
+# least-recently-run instance is evicted from EVERY cache tier at once (a raw
+# entry without its dependent tiers frees nothing — the patched clones reference
+# the raw objects).
+_INSTANCE_LRU = {}   # unique_id -> None, insertion-ordered (oldest first)
+_MAX_INSTANCES = 4
+
+
+def _touch_instance(uid):
+    _INSTANCE_LRU.pop(uid, None)
+    _INSTANCE_LRU[uid] = None
+    while len(_INSTANCE_LRU) > _MAX_INSTANCES:
+        oldest = next(iter(_INSTANCE_LRU))
+        del _INSTANCE_LRU[oldest]
+        for cache in _ALL_CACHES:
+            cache.pop(oldest, None)
+        print(f"[Image Oasis] Evicted cached models for inactive node {oldest}.")
+
+
+def clear_caches():
+    """Drop every cached model/conditioning/latent. Used by the flush route."""
+    _INSTANCE_LRU.clear()
+    for cache in _ALL_CACHES:
+        cache.clear()
 
 
 def _cache_key(payload):
@@ -209,8 +238,10 @@ def _tensor_digest(t):
         return h.hexdigest()
     except Exception:
         # Never let a hashing failure break generation; fall back to a sentinel
-        # that forces a re-encode (correct, just not cached) for this run.
-        return "uncacheable"
+        # that forces a re-encode (correct, just not cached) for this run. The
+        # sentinel must be UNIQUE per call — a constant here would make two
+        # consecutive failures produce identical cache keys, i.e. a stale HIT.
+        return f"uncacheable-{_uuid.uuid4().hex}"
 
 
 # Default config — the JS widget overrides these via the image_oasis_ui blob.
@@ -223,7 +254,7 @@ _DEFAULTS = {
     "width": 1024, "height": 1024, "batch_size": 1, "seed": 0,
     "steps": 20, "cfg": 3.5, "sampler_name": "euler", "scheduler": "simple",
     "denoise": 1.0, "seed_control": "randomize",
-    "clip_file": "", "vae_file": "",
+    "clip_file": "", "clip_file_2": "", "clip_file_3": "", "vae_file": "",
     "clip_bundled": False, "vae_bundled": False,
     "weight_dtype": "default", "clip_type": "", "shift": 0.0,
     # LoRA stack: list of {name, strength_model, strength_clip}, applied in order.
@@ -267,9 +298,39 @@ class ImageOasis:
     )
 
     def generate(self, unique_id=None, prompt=None, extra_pnginfo=None):
+        # Silence ComfyUI's global progress hook for the duration of the run.
+        # The hook is the transport for BOTH per-step live-preview frames
+        # (b_preview) and progress messages — each keyed by raw numeric node
+        # id and painted by the frontend onto whatever node the *currently
+        # active* graph has at that id. When the user tabs to another
+        # workflow mid-generation, a same-id node there (e.g. a Show Text)
+        # receives IO's preview frames and progress bar. IO suppresses its
+        # own live-preview display anyway, so these frames serve nobody:
+        # killing the hook removes the misrouting at the source instead of
+        # chasing it in the frontend. Restored in `finally`, so interrupts
+        # (InterruptProcessingException) and errors can't leave it dead for
+        # other workflows. ComfyUI executes one prompt at a time, so the
+        # temporary swap can't clobber a concurrent run.
+        import comfy.utils
+        prev_hook = comfy.utils.PROGRESS_BAR_HOOK
+        comfy.utils.set_progress_bar_global_hook(None)
+        try:
+            return self._generate_impl(unique_id=unique_id, prompt=prompt,
+                                       extra_pnginfo=extra_pnginfo)
+        finally:
+            comfy.utils.set_progress_bar_global_hook(prev_hook)
+
+    def _generate_impl(self, unique_id=None, prompt=None, extra_pnginfo=None):
 
         # ── Read config from the DOM widget blob (image_oasis_ui) ──────────
         state0 = _read_widget_state(prompt, unique_id, "image_oasis_ui")
+        # io_id rides at the top level of the widget state blob (separate from
+        # uiState/execState). Stable per-node UUID generated by the frontend,
+        # round-trips through workflow JSON. Used to route the result back to
+        # the originating node via a custom WebSocket event, bypassing
+        # ComfyUI's per-numeric-id `executed` routing that mis-targets same-id
+        # nodes on whichever workflow is currently active.
+        io_id = state0.get("io_id") if isinstance(state0, dict) else None
         ui, ex = _split_widget_state(state0)
         merged = {**(ui or {}), **(ex or {})}
         cfg = dict(_DEFAULTS)
@@ -287,7 +348,7 @@ class ImageOasis:
         steps = int(cfg["steps"]); cfg_scale = float(cfg["cfg"])
         sampler_name = cfg["sampler_name"]; scheduler = cfg["scheduler"]
         denoise = float(cfg["denoise"])
-        clip_file = cfg["clip_file"]; vae_file = cfg["vae_file"]
+        clip_file = cfg["clip_file"]; clip_file_2 = cfg["clip_file_2"]; clip_file_3 = cfg["clip_file_3"]; vae_file = cfg["vae_file"]
         clip_bundled = bool(cfg["clip_bundled"]); vae_bundled = bool(cfg["vae_bundled"])
         weight_dtype = cfg["weight_dtype"]; clip_type = cfg["clip_type"]
         shift = float(cfg["shift"])
@@ -301,12 +362,21 @@ class ImageOasis:
 
         # Normalize the LoRA stack (list of {name, strength_model, strength_clip}),
         # dropping blanks here so the cache key and the load are deterministic.
+        # Trigger words are collected from the same iteration (enabled LoRAs
+        # only) and prepended to the positive prompt in stack order, comma-
+        # joined, just before the conditioning encode. The cond cache key is
+        # built off the final `positive` string, so trigger edits bust the
+        # cache correctly without extra bookkeeping.
         loras = []
+        trigger_phrases = []
         for it in (cfg.get("loras") or []):
             if not isinstance(it, dict):
                 continue
             if not it.get("enabled", True):
                 continue  # kept in the UI list, but excluded from the active stack
+            tw = (it.get("trigger_words") or "").strip()
+            if tw:
+                trigger_phrases.append(tw)
             nm = (it.get("name") or "").strip()
             if not nm or nm == "(none)":
                 continue
@@ -315,11 +385,9 @@ class ImageOasis:
                 "strength_model": float(it.get("strength_model", 1.0)),
                 "strength_clip": float(it.get("strength_clip", 0.0)),
             })
-
-        # Reference images: load from uploaded filenames (monolith, no sockets).
-        image1 = _load_input_image(cfg["ref_image1"])
-        image2 = _load_input_image(cfg["ref_image2"])
-        image3 = _load_input_image(cfg["ref_image3"])
+        if trigger_phrases:
+            prefix = ", ".join(trigger_phrases)
+            positive = (prefix + ", " + positive) if positive else prefix
 
         if not model_file:
             raise ValueError("[Image Oasis] No model selected.")
@@ -327,16 +395,34 @@ class ImageOasis:
         # ── Validate up front (cheap, before any loading) ──────────────────
         spec = validate_combo(architecture, source_type)
 
+        # Reference images: load from uploaded filenames (monolith, no sockets).
+        # Gated on the arch actually consuming them — otherwise every queue
+        # would re-read + content-hash up to three images that get ignored,
+        # and editing a ref slot would bust the conditioning cache for nothing.
+        ref_names = (cfg["ref_image1"], cfg["ref_image2"], cfg["ref_image3"])
+        if spec["accepts_image_cond"]:
+            image1, image2, image3 = (_load_input_image(n) for n in ref_names)
+        else:
+            image1 = image2 = image3 = None
+            if any(ref_names):
+                print(f"[Image Oasis] Note: architecture '{architecture}' does "
+                      f"not use reference images — they will be ignored.")
+
         # Resolve arch-derived defaults where the user left a field neutral.
         effective_clip_type = (clip_type or "").strip() or spec["default_clip_type"]
         effective_shift = shift if shift > 0.0 else spec["shift_default"]
         sampling = spec["sampling"]
 
-        # Warn (don't fail) if reference images are present but arch ignores them.
-        has_images = any(i is not None for i in (image1, image2, image3))
-        if has_images and not spec["accepts_image_cond"]:
-            print(f"[Image Oasis] Note: architecture '{architecture}' does not "
-                  f"use reference images — they will be ignored.")
+        # Trim CLIP slots to the arch's allowance. State preserves all three
+        # so switching arches doesn't destroy prior picks, but a 1-slot arch
+        # must never trigger a triple-CLIP load with stale slot-2/3 values.
+        n_clip_slots = spec.get("clip_slots", 1)
+        if n_clip_slots < 2: clip_file_2 = ""
+        if n_clip_slots < 3: clip_file_3 = ""
+
+        # Mark this instance as live in the bounded cache LRU (may evict the
+        # least-recently-run instance's caches across all tiers).
+        _touch_instance(unique_id)
 
         # ── Stage 1: load (two-tier cache) ─────────────────────────────────
         # Tier 1 — raw disk load, keyed only on what forces a re-read (the
@@ -344,7 +430,8 @@ class ImageOasis:
         # strength tweak does NOT change this key, so it never re-reads disk.
         raw_key = _cache_key({
             "source_type": source_type, "model_file": model_file,
-            "clip_file": clip_file, "vae_file": vae_file,
+            "clip_file": clip_file, "clip_file_2": clip_file_2,
+            "clip_file_3": clip_file_3, "vae_file": vae_file,
             "clip_bundled": clip_bundled, "vae_bundled": vae_bundled,
             "weight_dtype": weight_dtype, "clip_type": effective_clip_type,
         })
@@ -354,7 +441,8 @@ class ImageOasis:
         else:
             raw_model, raw_clip, vae = stage_load.load_models(
                 source_type=source_type, model_file=model_file,
-                clip_file=clip_file, vae_file=vae_file,
+                clip_file=clip_file, clip_file_2=clip_file_2, clip_file_3=clip_file_3,
+                vae_file=vae_file,
                 clip_bundled=clip_bundled, vae_bundled=vae_bundled,
                 weight_dtype=weight_dtype, clip_type=effective_clip_type)
             _RAWLOAD_CACHE[unique_id] = (raw_key, raw_model, raw_clip, vae)
@@ -525,8 +613,25 @@ class ImageOasis:
         # ── On-node preview ────────────────────────────────────────────────
         ui_images = preview.save_preview(image, prompt=prompt, extra_pnginfo=extra_pnginfo)
 
-        # Monolith: OUTPUT_NODE renders its own preview; no output sockets.
-        return {"ui": {"images": ui_images}}
+        # Side-channel result routing: send the saved-image metadata via a
+        # custom WebSocket event keyed by io_id. The frontend's module-level
+        # listener looks up the originating node by io_id (stable UUID) and
+        # updates its panel directly. This sidesteps ComfyUI's per-numeric-id
+        # `executed` routing entirely — no `node.imgs` assignment, no Pinia
+        # `nodeOutput` store entry, no cross-workflow id collision damage.
+        # Returning {} (no "ui" key) keeps OUTPUT_NODE execution semantics
+        # without registering images for canvas paint or other-workflow
+        # mis-routing.
+        if io_id:
+            try:
+                from server import PromptServer
+                PromptServer.instance.send_sync(
+                    "image-oasis/result",
+                    {"io_id": io_id, "images": ui_images},
+                )
+            except Exception as e:
+                print(f"[Image Oasis] result send failed: {e}")
+        return {}
 
 
 NODE_CLASS_MAPPINGS = {"ImageOasis": ImageOasis}

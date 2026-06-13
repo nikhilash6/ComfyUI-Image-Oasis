@@ -106,23 +106,29 @@ def run_sampling_chain(model, vae, positive, negative, latent, seed, passes,
         if p.get("return_with_leftover_noise", False):
             ksampler_kwargs["force_full_denoise"] = False
 
+        # Failures MUST propagate. Swallowing them here would fall through with
+        # `current_latent` still equal to the pass's INPUT latent, and the
+        # caller would then cache that un-sampled latent under the same key a
+        # successful run uses — every requeue with identical settings becomes a
+        # cache hit on garbage. Letting the exception raise means ComfyUI shows
+        # the real error on the node and no cache entry is written.
         try:
             result = common_ksampler(
                 model, seed, steps, cfg, sampler, scheduler,
                 positive, negative, current_latent, **ksampler_kwargs)
-            if not isinstance(result, tuple) or len(result) < 1:
-                raise RuntimeError(
-                    "common_ksampler returned no latent — check steps, denoise, "
-                    "start_at_step, end_at_step for this pass.")
-            current_latent = result[0]
-
-            if vae_decode:
-                decoded = _vae_decode_safe(vae, current_latent["samples"])
-                last_image = _img_bhwc(decoded) if decoded is not None else last_image
-
         except Exception as e:
-            print(f"[Image Oasis] Sampling pass {i + 1} error: {e}")
             traceback.print_exc()
+            raise RuntimeError(
+                f"[Image Oasis] Sampling pass {i + 1} failed: {e}") from e
+        if not isinstance(result, tuple) or len(result) < 1:
+            raise RuntimeError(
+                f"[Image Oasis] Sampling pass {i + 1}: common_ksampler returned "
+                "no latent — check steps, denoise, start_at_step, end_at_step.")
+        current_latent = result[0]
+
+        if vae_decode:
+            decoded = _vae_decode_safe(vae, current_latent["samples"])
+            last_image = _img_bhwc(decoded) if decoded is not None else last_image
 
     # Always produce a final decoded image unless the last pass already did.
     if decode_final:

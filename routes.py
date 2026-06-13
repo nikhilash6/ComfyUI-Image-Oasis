@@ -19,6 +19,7 @@ here rather than imported from the Architect suite.
 """
 
 import os
+import sys
 import time
 import asyncio
 
@@ -109,6 +110,26 @@ async def image_oasis_models(request):
     return web.json_response(data)
 
 
+@routes.post("/image_oasis/flush_cache")
+async def image_oasis_flush_cache(request):
+    """Drop all cached models/conditioning/latents across every node instance.
+    The per-instance LRU bounds growth automatically; this is the manual big
+    hammer for reclaiming RAM mid-session without restarting ComfyUI."""
+    nodes_mod = sys.modules.get("image_oasis_nodes")
+    if nodes_mod is None or not hasattr(nodes_mod, "clear_caches"):
+        return web.json_response({"error": "Node module not loaded."}, status=500)
+    nodes_mod.clear_caches()
+    import gc
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+    return web.json_response({"ok": True})
+
+
 # ── Presets (mirrors Control Architect's preset routes/storage) ───────────────
 
 import json as _pjson
@@ -130,15 +151,30 @@ def _read_json(path, default):
 
 
 def _atomic_write_json(path, data):
-    """Write to a temp file then replace, so a crash mid-write can't corrupt."""
+    """Write to a temp file then replace, so a crash mid-write can't corrupt.
+    Returns True on success so callers can report a failed save instead of
+    silently claiming ok."""
     try:
         d = os.path.dirname(path)
         fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             _pjson.dump(data, f, indent=2)
         os.replace(tmp, path)
-    except Exception:
-        pass
+        return True
+    except Exception as e:
+        print(f"[Image Oasis] Failed to write {os.path.basename(path)}: {e}")
+        return False
+
+
+def _resolve_under(base, *parts):
+    """Join `parts` onto `base` and resolve; None unless the result stays
+    inside `base`. Blocks both `..` traversal and absolute-path components
+    (os.path.join discards everything before an absolute segment)."""
+    resolved = os.path.realpath(os.path.join(base, *parts))
+    root = os.path.realpath(base)
+    if resolved != root and not resolved.startswith(root + os.sep):
+        return None
+    return resolved
 
 
 def _load_presets():
@@ -146,7 +182,7 @@ def _load_presets():
 
 
 def _save_presets(p):
-    _atomic_write_json(_PRESETS_FILE, p)
+    return _atomic_write_json(_PRESETS_FILE, p)
 
 
 @routes.get("/image_oasis/presets")
@@ -156,7 +192,10 @@ async def image_oasis_get_presets(request):
 
 @routes.post("/image_oasis/save_preset")
 async def image_oasis_save_preset(request):
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Bad request body."}, status=400)
     name = (data.get("name", "Untitled") or "Untitled").strip() or "Untitled"
     cfg = data.get("config", {})
     presets = _load_presets()
@@ -171,7 +210,8 @@ async def image_oasis_save_preset(request):
         presets[idx] = entry
     else:
         presets.insert(0, entry)
-    _save_presets(presets)
+    if not _save_presets(presets):
+        return web.json_response({"error": "Could not write presets.json."}, status=500)
     return web.json_response({"ok": True})
 
 
@@ -179,6 +219,32 @@ async def image_oasis_save_preset(request):
 async def image_oasis_delete_preset(request):
     pid = request.match_info["preset_id"]
     _save_presets([p for p in _load_presets() if p.get("id") != pid])
+    return web.json_response({"ok": True})
+
+
+@routes.post("/image_oasis/reorder_presets")
+async def image_oasis_reorder_presets(request):
+    """Rewrite presets.json in the order specified by `ids` in the request body.
+    Any presets on disk not present in `ids` are appended at the end (defensive
+    — shouldn't happen in practice, but means a stale frontend can't drop a
+    preset on the floor by omitting its id)."""
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Bad request body."}, status=400)
+    ids = data.get("ids") or []
+    presets = _load_presets()
+    by_id = {p.get("id"): p for p in presets}
+    seen = set()
+    reordered = []
+    for i in ids:
+        if i in by_id and i not in seen:
+            reordered.append(by_id[i])
+            seen.add(i)
+    for p in presets:
+        if p.get("id") not in seen:
+            reordered.append(p)
+    _save_presets(reordered)
     return web.json_response({"ok": True})
 
 
@@ -336,6 +402,27 @@ async def image_oasis_check_bundle(request):
     return web.json_response(result)
 
 
+# ── In-node help content (item 2) ────────────────────────────────────────────
+#
+# Serves help_content.md from the package directory as raw markdown. The JS
+# fetches once on node setup and renders inline via a tiny markdown parser.
+# Layman-style content authored separately from the README so the in-node tone
+# can be friendlier than the GitHub readme.
+
+_HELP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "help_content.md")
+
+
+@routes.get("/image_oasis/help")
+async def image_oasis_get_help(request):
+    try:
+        with open(_HELP_FILE, "r", encoding="utf-8") as f:
+            text = f.read()
+    except Exception:
+        text = "# Help unavailable\n\nCouldn't read `help_content.md` from the package directory."
+    return web.Response(text=text, content_type="text/markdown", charset="utf-8")
+
+
+
 # ── Save generated image temp -> output folder (mirrors Preview Architect) ────
 
 from PIL import Image as _PILImage
@@ -358,21 +445,25 @@ async def image_oasis_save(request):
         for img_info in images_to_save:
             src_filename = img_info.get("filename", "")
             src_subfolder = img_info.get("subfolder", "")
-            src_path = (os.path.join(temp_dir, src_subfolder, src_filename)
-                        if src_subfolder else os.path.join(temp_dir, src_filename))
-            if not os.path.isfile(src_path):
+            # Containment check: filename/subfolder come from the client, and
+            # this server has no auth — without it, `..` or an absolute path
+            # could copy ANY readable image on disk into the output folder.
+            src_path = _resolve_under(temp_dir, src_subfolder, src_filename)
+            if not src_path or not os.path.isfile(src_path):
                 continue
-            img = _PILImage.open(src_path)
-            pnginfo = img.info if hasattr(img, "info") else {}
-            metadata = None
-            if pnginfo:
-                metadata = _PngInfo()
-                for k, v in pnginfo.items():
-                    if isinstance(v, str):
-                        metadata.add_text(k, v)
             out_filename = f"{base_filename}_{counter:05}_.png"
             out_path = os.path.join(full_out, out_filename)
-            img.save(out_path, pnginfo=metadata, compress_level=4)
+            # Close the handle promptly — Windows keeps the temp file locked
+            # while a PIL Image holds it open.
+            with _PILImage.open(src_path) as img:
+                pnginfo = img.info if hasattr(img, "info") else {}
+                metadata = None
+                if pnginfo:
+                    metadata = _PngInfo()
+                    for k, v in pnginfo.items():
+                        if isinstance(v, str):
+                            metadata.add_text(k, v)
+                img.save(out_path, pnginfo=metadata, compress_level=4)
             size_kb = round(os.path.getsize(out_path) / 1024)
             saved.append({"filename": out_filename, "subfolder": subfolder, "type": "output", "size_kb": size_kb})
             counter += 1

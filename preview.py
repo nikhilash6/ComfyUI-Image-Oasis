@@ -3,9 +3,11 @@ On-node image preview for Image Oasis.
 
 Writes the decoded image batch to ComfyUI's temp directory with embedded PNG
 metadata (prompt + workflow) and returns the standard ComfyUI
-[{filename, subfolder, type:"temp"}] list. Putting that list under ui["images"]
-makes ComfyUI render the generated image directly on the node — the same
-mechanism the stock PreviewImage node uses.
+[{filename, subfolder, type:"temp"}] list. nodes.py sends that list to the
+frontend via the "image-oasis/result" WebSocket event, keyed by the node's
+stable io_id — NOT via ui["images"], which would route by raw numeric node id
+against the currently active graph and misdeliver to same-id nodes on other
+workflows (see the comment at the end of ImageOasis.generate).
 
 This is the temp-save core only; the explicit save-to-output route lives in
 routes.py.
@@ -32,7 +34,7 @@ def _disable_metadata():
 
 def save_preview(images, prompt=None, extra_pnginfo=None):
     """Write `images` (IMAGE tensor [B,H,W,C] or [B,T,H,W,C]) to temp and return
-    the list of {filename, subfolder, type} entries for ui["images"]."""
+    the list of {filename, subfolder, type} entries for the io_id result event."""
     if images is None:
         return []
 

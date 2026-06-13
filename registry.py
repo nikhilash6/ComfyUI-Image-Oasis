@@ -25,13 +25,23 @@ ALL_SOURCES = (SOURCE_CHECKPOINT, SOURCE_DIFFUSION, SOURCE_GGUF)
 
 
 ARCH_REGISTRY = {
+    "auraflow": {
+        "label": "AuraFlow",
+        "loaders": ALL_SOURCES,
+        "sampling": "auraflow",
+        "shift_default": 3.0,
+        "accepts_image_cond": False,
+        "default_clip_type": "stable_diffusion",
+        "clip_slots": 1,                # single TE (Pile-T5 family)
+    },
     "flux": {
-        "label": "Flux",
+        "label": "Flux.1 / Flux.2",
         "loaders": ALL_SOURCES,
         "sampling": "flux",            # key consumed by apply_model_sampling()
         "shift_default": 1.15,          # Flux uses a max_shift-style value
         "accepts_image_cond": False,
         "default_clip_type": "flux",
+        "clip_slots": 2,                # clip_l + t5xxl (Flux.2 Klein users leave slot 2 empty)
     },
     "qwen_image_edit": {
         "label": "Qwen-Image-Edit",
@@ -40,6 +50,19 @@ ARCH_REGISTRY = {
         "shift_default": 3.0,
         "accepts_image_cond": True,     # the 1-3 image edit inputs
         "default_clip_type": "qwen_image",
+        "clip_slots": 1,                # single Qwen2VL TE
+    },
+    "other": {
+        # Escape hatch: load as-is, no sampling patch, plain CLIP encode.
+        # Correct choice for SDXL, SD1/SD1.5, and any other model that doesn't
+        # need a flow-matching patch.
+        "label": "SD1 / SD1.5 / No Patch",
+        "loaders": ALL_SOURCES,
+        "sampling": "none",
+        "shift_default": 3.0,
+        "accepts_image_cond": False,
+        "default_clip_type": "stable_diffusion",
+        "clip_slots": 2,                # covers SDXL (clip_l + clip_g); SD1.5 leaves slot 2 empty
     },
     "sd3": {
         "label": "SD3 / SD3.5",
@@ -48,24 +71,7 @@ ARCH_REGISTRY = {
         "shift_default": 3.0,
         "accepts_image_cond": False,
         "default_clip_type": "sd3",
-    },
-    "auraflow": {
-        "label": "AuraFlow",
-        "loaders": ALL_SOURCES,
-        "sampling": "auraflow",
-        "shift_default": 3.0,
-        "accepts_image_cond": False,
-        "default_clip_type": "stable_diffusion",
-    },
-    "other": {
-        # Escape hatch: load as-is, no sampling patch, plain CLIP encode.
-        # Useful for SDXL/SD1.5 checkpoints or anything not needing a flow patch.
-        "label": "Other / No patch",
-        "loaders": ALL_SOURCES,
-        "sampling": "none",
-        "shift_default": 3.0,
-        "accepts_image_cond": False,
-        "default_clip_type": "stable_diffusion",
+        "clip_slots": 3,                # clip_l + clip_g + t5xxl (triple TE for best quality)
     },
 }
 

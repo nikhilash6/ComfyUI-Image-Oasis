@@ -1,14 +1,14 @@
 [project]
 name = "comfyui-image-oasis"
-description = "All-in-one ComfyUI image generation node: switchable architecture (Flux, Qwen-Image-Edit, SD3, AuraFlow), tri-source model loading, LoRA stack, prompt enhancer, refiner pass, and optional upscale — in a single node."
-version = "1.0.0"
+description = "All-in-one ComfyUI image generation node: switchable architecture (AuraFlow, Flux.1/2, Qwen-Image-Edit, SD1/SD1.5/SDXL, SD3/3.5), tri-source model loading, dual/triple CLIP, LoRA stack, prompt enhancer, refiner pass, optional upscale, A/B compare slider - in a single node."
+version = "1.1.0"
 license = { file = "LICENSE" }
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
     { name = "NikoDemon80", email = "262659861+NikoDemon80@users.noreply.github.com" },
 ]
-keywords = ["comfyui", "image-generation", "flux", "qwen-image-edit", "sd3", "auraflow"]
+keywords = ["comfyui", "image-generation", "flux", "qwen-image-edit", "sd3", "sdxl", "auraflow"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: End Users/Desktop",
@@ -28,7 +28,3 @@ dependencies = [
 Homepage = "https://github.com/NikoDemon80/ComfyUI-Image-Oasis"
 Repository = "https://github.com/NikoDemon80/ComfyUI-Image-Oasis"
 Issues = "https://github.com/NikoDemon80/ComfyUI-Image-Oasis/issues"
-
-[tool.comfy]
-PublisherId = "nikodemon80"
-DisplayName = "ComfyUI-Image-Oasis"
