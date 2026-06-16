@@ -6,6 +6,8 @@ Configuration arrives as explicit function arguments (from the node's
 INPUT_TYPES widgets / DOM widget blob), so this stage is self-contained.
 """
 
+import sys
+
 import torch
 import folder_paths
 import comfy.sd
@@ -69,6 +71,28 @@ def _load_gguf_node(class_name, **explicit_kwargs):
 # ---------------------------------------------------------------------------
 # Model loading (checkpoint / diffusion / gguf)
 # ---------------------------------------------------------------------------
+
+def unload_enhancer_if_loaded():
+    """Free the prompt-enhancer LLM (if one is cached) at the start of image
+    generation, so it doesn't compete with the diffusion model for VRAM. No-op
+    when no LLM is loaded, so iterating without re-enhancing doesn't trigger a
+    reload cycle. Routes_enhance is loaded under a fixed sys.modules key by
+    __init__.py — look it up there to avoid relative-import fragility.
+
+    Called from nodes.py before the diffusion cache check, so it fires on
+    every generation regardless of whether load_models() runs."""
+    m = sys.modules.get("image_oasis_routes_enhance")
+    if m is None:
+        return
+    fn = getattr(m, "unload_enhancer", None)
+    if fn is None:
+        return
+    try:
+        fn()
+    except Exception as e:
+        # Never let an enhancer-side failure block image generation.
+        print(f"[Image Oasis] Enhancer unload skipped: {e!r}")
+
 
 def load_models(source_type, model_file, clip_file, vae_file,
                 clip_bundled, vae_bundled, weight_dtype, clip_type,

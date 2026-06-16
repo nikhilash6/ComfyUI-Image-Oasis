@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.2
+
+### Added
+- Added a new feature that splits the prompt enhancer into two textareas: a sticky **User Prompt** (your short input) and an **Enhanced Prompt** (the result that drives generation). Re-clicking Enhance always re-runs from the User Prompt, so iterating no longer means losing your original.
+- Added a new feature that auto-cleans model-specific output artifacts from enhancer results (`<think>` blocks, orphan `</think>` tags, leaked `[INST]` / `[OUT]` / `<<SYS>>` template tokens, etc.) via `profiles.json`. Profiles are auto-resolved from the model filename with a universal fallback; edit the file to add rules for new models — no restart needed.
+- Added an **Enhancer Settings** sub-panel at the bottom of the Prompt section (collapsed by default): Auto GPU layers with a live VRAM-based recommendation, manual GPU layers override, Context, and Max tokens. The recommendation is computed from the GGUF header's layer count and current free VRAM whenever the model selection changes.
+
+### Improved
+- Improved enhancer iteration speed: the LLM now stays loaded between Enhance clicks instead of unloading per click. It still unloads automatically when image generation starts, so it never competes with the diffusion model for VRAM during sampling.
+- Improved enhancer inference speed: flash attention is now enabled by default in the llama.cpp loader. CUDA and Metal builds get the speedup transparently; CPU builds ignore the flag.
+
+### Fixed
+- Fixed a bit of code that was adding unnecessary overhead to the LLM loading process, forcing models which would normally full load into VRAM to partially offload, slowing inference speed dramatically. Prompt enhancement is now fully optimized and should feel 3-5x faster.
+
+### Removed
+- Removed the Think / No-think toggle. Thinking models now work cleanly out of the box because the auto-cleanup profiles strip the `<think>` block from the output.
+- Removed the revert button. With User Prompt and Enhanced Prompt as separate boxes, your original is never overwritten — re-clicking Enhance just re-runs from the User Prompt.
+
+---
+
 ## v1.1
 
 ### Added

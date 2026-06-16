@@ -16,7 +16,7 @@ Sampling patch values:
   - "none"      -> no patch
 """
 
-# Valid model source types (must match loader keys in pipeline/loaders.py)
+# Valid model source types (must match loader keys in stage_load.py)
 SOURCE_CHECKPOINT = "checkpoint"
 SOURCE_DIFFUSION = "diffusion"
 SOURCE_GGUF = "gguf"

@@ -392,6 +392,13 @@ class ImageOasis:
         if not model_file:
             raise ValueError("[Image Oasis] No model selected.")
 
+        # First thing on every generation: release the enhancer LLM if one is
+        # cached. Must run unconditionally — putting it inside load_models()
+        # missed the case where the diffusion model is already in _RAWLOAD_CACHE
+        # (load_models() is skipped, but the LLM was still pinning ~5GB of VRAM,
+        # forcing the text encoder to spill). No-op when no LLM is loaded.
+        stage_load.unload_enhancer_if_loaded()
+
         # ── Validate up front (cheap, before any loading) ──────────────────
         spec = validate_combo(architecture, source_type)
 

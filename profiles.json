@@ -1,0 +1,45 @@
+{
+  "_comment": "Cleanup profiles for the Image Oasis prompt enhancer. Auto-resolved per request from the model filename; first match wins, no match falls back to 'universal'. Rule edits to existing profiles take effect on the next click; new profile entries also load on the next click (no restart needed since the enhancer no longer surfaces a profile picker).",
+
+  "universal": [
+    {"op": "regex_sub", "pattern": "(?s)<think>.*?</think>", "replace": ""},
+    {"op": "regex_sub", "pattern": "(?s)^.*?</think>\\s*",   "replace": ""},
+    {"op": "regex_sub", "pattern": "\\[/?(?:INST|OUT)\\]|<</?SYS>>", "replace": ""},
+    {"op": "strip"}
+  ],
+
+  "profiles": {
+    "qwen35-orphan-think": {
+      "description": "Qwen3.5 emits 'Thinking process: ... </think>' with no opening tag because the chat template prefilled <think>. Strip everything up to and including the orphan close.",
+      "match": "(?i)qwen3[._]?5",
+      "rules": [
+        {"op": "regex_sub", "pattern": "(?s)^.*?</think>\\s*", "replace": ""},
+        {"op": "strip"}
+      ]
+    },
+
+    "qwen3-think-block": {
+      "description": "Qwen3 emits a full <think>...</think> block before the answer.",
+      "match": "(?i)qwen3(?![._]?5)",
+      "rules": [
+        {"op": "regex_sub", "pattern": "(?s)<think>.*?</think>", "replace": ""},
+        {"op": "strip"}
+      ]
+    },
+
+    "wizardlm-llama-tokens": {
+      "description": "WizardLM-2 leaks Llama-template tokens ([OUT], <<SYS>>, <</SYS>>) and prepends blank lines.",
+      "match": "(?i)wizardlm",
+      "rules": [
+        {"op": "regex_sub", "pattern": "\\[/?(?:INST|OUT)\\]|<</?SYS>>", "replace": ""},
+        {"op": "strip"}
+      ]
+    },
+
+    "passthrough": {
+      "description": "Explicit no-op for known-clean models (SuperGemma, Mistral, Llama 3.3, Qwen2.5).",
+      "match": "(?i)(supergemma|mistral|llama-?3\\.3|qwen2\\.5)",
+      "rules": []
+    }
+  }
+}

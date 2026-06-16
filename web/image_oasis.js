@@ -51,13 +51,18 @@ const CSS = `
 .io-toggle-grp{display:flex;gap:0;border:1px solid var(--io-bd);border-radius:4px;overflow:hidden;flex:1;}
 .io-tog{flex:1;background:#191919;border:none;color:var(--io-dim);font-family:var(--io-mono);font-size:10px;line-height:1.15;padding:5px 4px;cursor:pointer;letter-spacing:.04em;transition:all .12s;}
 .io-tog.active{background:var(--io-accent-dim);color:#fff;font-weight:700;}
-/* Enhancer think/no-think toggle — sits between the Model label and the dropdown.
-   flex:0 0 auto + box-sizing + font-size:11px/line-height:normal/padding:4px 9px
-   make it compute to the same height as the adjacent .io-select. */
-.io-think-tog{flex:0 0 auto;box-sizing:border-box;background:#191919;border:1px solid var(--io-bd);border-radius:4px;color:var(--io-dim);font-family:var(--io-mono);font-size:11px;line-height:normal;padding:4px 9px;cursor:pointer;letter-spacing:.04em;transition:all .12s;white-space:nowrap;}
-.io-think-tog:hover{border-color:#777;color:#ddd;}
-.io-think-tog.active{background:var(--io-accent-dim);border-color:var(--io-accent);color:#fff;font-weight:700;}
 .io-icon-btn.io-dice{background:var(--io-accent-dim);border-color:var(--io-accent);color:#fff;}
+/* Sub-collapsible used inside the Prompt section for Enhancer Settings.
+   Visually subordinate to .io-section: no accent header, thinner padding,
+   single dim chevron. The header stays a row even when closed so the user
+   can click it to expand. */
+.io-subsec{border:1px solid var(--io-bd);border-radius:4px;background:#1a1a1a;margin-top:4px;}
+.io-subsec-head{display:flex;align-items:center;gap:6px;padding:5px 8px;cursor:pointer;user-select:none;font-family:var(--io-mono);font-size:10px;color:var(--io-dim);letter-spacing:.07em;text-transform:uppercase;}
+.io-subsec-head:hover{color:#ddd;}
+.io-subsec-title{flex:1;}
+.io-subsec-body{padding:7px 8px 8px;display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--io-bd);}
+.io-rec-label{font-family:var(--io-mono);font-size:10px;color:var(--io-dim);letter-spacing:.04em;white-space:nowrap;}
+.io-warn-tip{font-family:var(--io-mono);font-size:9px;color:#c98;letter-spacing:.03em;line-height:1.3;padding:2px 0;}
 .io-icon-btn.io-dice:hover{background:var(--io-accent);border-color:var(--io-accent);color:#fff;}
 .io-icon-btn.io-go{background:var(--io-go-fill);border-color:var(--io-go-bd);color:#fff;}
 .io-icon-btn.io-go:hover{background:var(--io-go-bd);border-color:var(--io-go-bd);color:#fff;}
@@ -88,6 +93,7 @@ const CSS = `
 .io-col-left{display:flex;flex-direction:column;gap:9px;overflow-y:auto;overflow-x:hidden;flex:0 0 360px;min-height:0;min-width:0;}
 .io-col-left::-webkit-scrollbar{width:4px;}
 .io-col-left::-webkit-scrollbar-thumb{background:var(--io-bd);border-radius:2px;}
+.io-col-left::-webkit-scrollbar-thumb:hover{background:var(--io-bd);}
 .io-col-right{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;background:#161616;border:1px solid var(--io-bd);border-radius:5px;overflow:hidden;}
 .io-preview-head{position:relative;display:flex;align-items:center;gap:8px;font-family:var(--io-mono);font-size:9px;font-weight:700;letter-spacing:.08em;color:var(--io-accent);text-transform:uppercase;padding:6px 9px;border-bottom:1px solid var(--io-bd);flex-shrink:0;}
 .io-preview-head .io-mini{flex:1;}
@@ -511,7 +517,7 @@ app.registerExtension({
 
       let st = {
         architecture:"flux", source_type:"diffusion", model_file:"",
-        positive:"", negative:"",
+        user_prompt:"", positive:"", negative:"",
         width:1024, height:1024, batch_size:1, seed:0,
         steps:20, cfg:3.5, sampler_name:"euler", scheduler:"simple", denoise:1.0,
         seed_control:"randomize",
@@ -525,7 +531,7 @@ app.registerExtension({
         ref_image1:"", ref_image2:"", ref_image3:"",
       };
       let open = { presets:false, model:false, loras:false, refs:false, prompt:false, sampling:false, refiner:false, upscale:false, theme:false, help:false };
-      let taHeights = { positive:72, negative:72 };  // px, drag-handle controlled
+      let taHeights = { user_prompt:72, positive:72, negative:72 };  // px, drag-handle controlled
       let presets = [];
       let presetName = "";
       let expandedPresets = new Set();
@@ -541,7 +547,7 @@ app.registerExtension({
       let currentBatchIdx = 0;       // which image of the current batch is displayed (0..N-1)
       let compareOpen = false;       // output-header Compare toggle (item 6 wires the actual slider)
       // ── Compare-slider state (item 6) ──
-      let previousImages = [];       // URLs of the prior batch (snapshotted in updatePanel)
+      let previousImages = [];       // URLs of the prior batch (snapshotted in onExecuted)
       let previousInfo = [];         // matching info objects, persisted via getValue/setValue
       let cmpPercent = 50;           // slider position 0..100 (% from the left)
       let cmpRefIdx = null;          // which ref slot (0|1|2) overrides "previous" as source; null = use previous
@@ -552,9 +558,18 @@ app.registerExtension({
       let llmModels = [];            // .gguf / .safetensors under models/LLM
       let llmModel = "";             // selected enhancer model
       let llmStyle = "natural";      // "natural" | "tags"
-      let prewandPrompt = null;      // sticky stash of the pre-enhance prompt; null = nothing to revert
-      let llmThinkOff = true;        // default no-think: hybrid models skip reasoning, no-op on plain instruct
       let wandBusy = false;          // disables the button mid-call
+
+      // Enhancer settings (collapsible at bottom of prompt panel).
+      let llmSettingsOpen = false;
+      let llmAutoLayers = true;      // checkbox: use recommended layer count
+      let llmGpuLayers = -1;         // -1 = all on GPU; only used when auto is off
+      let llmContext = 8192;
+      let llmMaxTokens = 2048;
+      // Recommendation cache: {total, layers, all} from the backend, or null
+      // while fetching / on error. Refetched on model change.
+      let llmRecommended = null;
+      let llmRecommendedBusy = false;
       let samplers = ["euler","euler_ancestral","dpmpp_2m","dpmpp_2m_sde","dpmpp_3m_sde","ddim","uni_pc","lcm","er_sde","sa_solver"];
       let schedulers = ["simple","normal","karras","beta","sgm_uniform","exponential","ddim_uniform"];
 
@@ -705,7 +720,7 @@ app.registerExtension({
           <textarea class="io-ta" data-f="${field}" placeholder="${ph}" style="height:${taHeights[field]||72}px">${esc(st[field])}</textarea>
           <div class="io-ta-handle" data-ta-handle="${field}"></div>
         </div>`;
-      // Magic-wand row: model picker + NL/Tags toggle + enhance/revert buttons.
+      // Magic-wand row: model picker, NL/Tags toggle + enhance button.
       // Out-of-band: calls /image_oasis/enhance directly; not part of the graph.
       const wandRow = () => {
         const hasModels = llmModels.length > 0;
@@ -715,27 +730,14 @@ app.registerExtension({
         const styleTog = ["natural","tags"].map(s=>
           `<button class="io-tog${llmStyle===s?" active":""}" data-llm-style="${s}">${s==="natural"?"Natural<br/>Language":"Tags"}</button>`).join("");
         const enhanceLabel = wandBusy ? "\u2026" : "\u2728 Enhance";
-        // No-think toggle: for hybrid reasoning models (Qwen3/3.5/3.6). When active, the
-        // backend passes enable_thinking:false through chat_template_kwargs AND prefixes
-        // /no_think to the user message — belt and suspenders, because the kwarg alone
-        // has known reliability issues on some recent Qwen3.5/3.6 GGUFs.
-        const thinkLabel = llmThinkOff ? "\u26a1 No-think" : "\u{1f4ad} Think";
-        const thinkTitle = llmThinkOff
-          ? "Thinking disabled \u2014 fast, lower quality on reasoning tasks. Click to re-enable."
-          : "Thinking enabled. Click to skip the think step on Qwen3-family models for much faster enhancement.";
-        const revertBtn = (prewandPrompt!==null)
-          ? `<button class="io-icon-btn" data-wand-revert title="Revert to your original prompt">\u21b6</button>` : "";
         return `
           <div class="io-row">
             <span class="io-label" style="width:auto">Model</span>
-            <button class="io-think-tog${llmThinkOff?" active":""}" data-llm-thinkoff title="${thinkTitle}">${thinkLabel}</button>
             <select class="io-select" data-llm-model ${hasModels?"":"disabled"}>${modelOpts}</select>
           </div>
-          <div class="io-mini" style="opacity:.7;margin:-2px 0 2px 0">Tip: instruct models work best. For thinking models, click \u26a1 to skip reasoning.</div>
           <div class="io-row" style="align-items:stretch">
             <div class="io-toggle-grp" style="flex:0 0 130px">${styleTog}</div>
             <button class="io-btn" data-wand-go style="margin-top:0;flex:1" ${wandBusy?"disabled":""}>${enhanceLabel}</button>
-            ${revertBtn}
           </div>`;
       };
       const promptSection = () => {
@@ -747,14 +749,72 @@ app.registerExtension({
         // here don't bust the conditioning cache.
         const negUsed = (st.cfg !== 1) || (st.enable_refiner && st.refiner_cfg !== 1);
         return sec("prompt","Prompt", `
-        ${taBlock("positive","Positive prompt")}
+        <div class="io-mini" style="margin-bottom:2px">User Prompt</div>
+        ${taBlock("user_prompt","Your short prompt to enhance")}
+        <div class="io-mini" style="margin:6px 0 2px 0">Enhanced Prompt</div>
+        ${taBlock("positive","Enhanced prompt (drives generation)")}
         ${wandRow()}
         <div class="io-ta-wrap">
           <textarea class="io-ta${negUsed?"":" io-ta-ignored"}" data-f="negative" placeholder="Negative prompt" style="height:${taHeights.negative||72}px" title="${negUsed?"":"Ignored — Negative Prompt uses CFG > 1. Increase CFG (or enable a refiner with CFG > 1) to use the negative prompt."}">${esc(st.negative)}</textarea>
           <div class="io-ta-handle" data-ta-handle="negative"></div>
         </div>
         <div class="io-neg-ignored-note" data-neg-note style="display:${negUsed?"none":"block"}">Ignored \u2014 Negative Prompt uses CFG &gt; 1.</div>
+        ${enhancerSettingsBlock()}
       `);
+      };
+
+      // Collapsible sub-panel inside Prompt. Closed by default. Three settings:
+      // GPU layers (with Auto checkbox + recommendation display), context size,
+      // max tokens. Auto layers is driven by the /image_oasis/llm_recommended_layers
+      // endpoint, refetched whenever the enhancer model selection changes.
+      const enhancerSettingsBlock = () => {
+        // Recommendation label content. While a fetch is in flight, show em-dash.
+        // When the math says everything fits, show "All (N)". Otherwise "N/total".
+        let recText;
+        if (llmRecommendedBusy || !llmRecommended) {
+          recText = "Recommended: \u2014";
+        } else if (llmRecommended.all) {
+          const total = llmRecommended.total;
+          recText = total ? `Recommended: All (${total})` : "Recommended: All";
+        } else {
+          recText = `Recommended: ${llmRecommended.layers}/${llmRecommended.total}`;
+        }
+        const head = `
+          <div class="io-subsec-head" data-subsec="enhancer_settings">
+            <span class="io-subsec-title">Enhancer Settings</span>
+            <span class="io-chevron${llmSettingsOpen?" open":""}">\u203a</span>
+          </div>`;
+        if (!llmSettingsOpen) return `<div class="io-subsec">${head}</div>`;
+        // GPU layers field: disabled when Auto is on; shows -1 in that case
+        // (the "Recommended" label translates that to "All (N)" for clarity).
+        const layersDisabled = llmAutoLayers ? "disabled" : "";
+        const layersValue = llmAutoLayers
+          ? (llmRecommended ? llmRecommended.layers : -1)
+          : llmGpuLayers;
+        return `<div class="io-subsec">
+          ${head}
+          <div class="io-subsec-body">
+            <div class="io-row" style="align-items:center">
+              <label class="io-chk" data-llm-auto-layers>
+                <span class="io-chk-box${llmAutoLayers?" on":""}">${llmAutoLayers?"\u2713":""}</span>Auto GPU layers
+              </label>
+              <span class="io-rec-label">${recText}</span>
+            </div>
+            <div class="io-warn-tip">\u26a0 Only disable Auto GPU Layers if you know what you're doing.</div>
+            <div class="io-row">
+              <span class="io-label">GPU layers</span>
+              <input class="io-input" type="number" data-llm-gpu-layers value="${layersValue}" step="1" ${layersDisabled}/>
+            </div>
+            <div class="io-row">
+              <span class="io-label">Context</span>
+              <input class="io-input" type="number" data-llm-context value="${llmContext}" step="512" min="512"/>
+            </div>
+            <div class="io-row">
+              <span class="io-label">Max tokens</span>
+              <input class="io-input" type="number" data-llm-max-tokens value="${llmMaxTokens}" step="64" min="64"/>
+            </div>
+          </div>
+        </div>`;
       };
       const samplingSection = () => sec("sampling","Generation", `
         <div class="io-half">${num("width","Width",8,64,8192)}${num("height","Height",8,64,8192)}</div>
@@ -915,7 +975,7 @@ app.registerExtension({
         // ── Compare-source resolution (item 6) ──
         // Ref slot wins when toggled and the slot still holds an image; falls
         // back silently to "previous" if the ref was cleared. previousImages
-        // came from the prior generation's snapshot in updatePanel. Matched
+        // came from the prior generation's snapshot in onExecuted. Matched
         // batches (length-equal) pair by index; unmatched batches only
         // compare image[0] (rest render bare).
         const refSrcFn = (cmpRefIdx!==null) ? st["ref_image"+(cmpRefIdx+1)] : "";
@@ -1118,9 +1178,6 @@ app.registerExtension({
             if(el.type==="number"){v=parseFloat(v); if(isNaN(v))v=0;}
             st[f]=v;
             save();                       // persist WITHOUT re-rendering (no innerHTML wipe)
-            // A manual edit to the positive prompt becomes the new revert
-            // baseline: drop the stash so the next enhance re-captures this text.
-            if(f==="positive"){ prewandPrompt=null; }
             if(f==="architecture"){render();}        // arch changes which fields show
             if(f==="model_file"){checkBundle();}     // detect baked CLIP/VAE for checkpoints
             // cfg / refiner_cfg gate the negative-textarea dim state. Targeted
@@ -1133,12 +1190,51 @@ app.registerExtension({
         });
 
         // ── Magic-wand bindings ──
-        container.querySelector("[data-llm-model]")?.addEventListener("change",e=>{e.stopPropagation();llmModel=e.target.value;});
+        container.querySelector("[data-llm-model]")?.addEventListener("change",e=>{
+          e.stopPropagation();
+          llmModel = e.target.value;
+          // New model -> the previous recommendation is stale. Clear & refetch.
+          llmRecommended = null;
+          save();
+          fetchRecommendedLayers();
+        });
         container.querySelector("[data-llm-model]")?.addEventListener("click",e=>e.stopPropagation());
-        container.querySelectorAll("[data-llm-style]").forEach(b=>b.addEventListener("click",e=>{e.stopPropagation();llmStyle=b.dataset.llmStyle;render();}));
-        container.querySelector("[data-llm-thinkoff]")?.addEventListener("click",e=>{e.stopPropagation();llmThinkOff=!llmThinkOff;render();});
+        container.querySelectorAll("[data-llm-style]").forEach(b=>b.addEventListener("click",e=>{e.stopPropagation();llmStyle=b.dataset.llmStyle;save();render();}));
         container.querySelector("[data-wand-go]")?.addEventListener("click",e=>{e.stopPropagation();runEnhance();});
-        container.querySelector("[data-wand-revert]")?.addEventListener("click",e=>{e.stopPropagation();revertWand();});
+
+        // ── Enhancer Settings sub-panel bindings ──
+        container.querySelector('[data-subsec="enhancer_settings"]')?.addEventListener("click",e=>{
+          e.stopPropagation(); llmSettingsOpen = !llmSettingsOpen; save(); render();
+        });
+        container.querySelector("[data-llm-auto-layers]")?.addEventListener("click",e=>{
+          e.stopPropagation();
+          llmAutoLayers = !llmAutoLayers;
+          // Switching auto ON syncs the field to the current recommendation so
+          // there's no flash of a stale manual value. Switching auto OFF keeps
+          // whatever was in the field (so the user can fine-tune from the
+          // recommendation as a starting point).
+          if (llmAutoLayers && llmRecommended) llmGpuLayers = llmRecommended.layers;
+          save(); render();
+        });
+        container.querySelector("[data-llm-gpu-layers]")?.addEventListener("input",e=>{
+          e.stopPropagation();
+          if (llmAutoLayers) return;   // disabled in this mode; ignore stray input
+          const v = parseInt(e.target.value, 10);
+          if (Number.isFinite(v)) { llmGpuLayers = v; save(); }
+        });
+        container.querySelector("[data-llm-context]")?.addEventListener("input",e=>{
+          e.stopPropagation();
+          const v = parseInt(e.target.value, 10);
+          if (Number.isFinite(v) && v >= 512) { llmContext = v; save(); }
+        });
+        container.querySelector("[data-llm-max-tokens]")?.addEventListener("input",e=>{
+          e.stopPropagation();
+          const v = parseInt(e.target.value, 10);
+          if (Number.isFinite(v) && v >= 64) { llmMaxTokens = v; save(); }
+        });
+        // Click on the inputs shouldn't bubble (would collapse the sub-section).
+        container.querySelectorAll("[data-llm-gpu-layers],[data-llm-context],[data-llm-max-tokens]")
+          .forEach(el=>el.addEventListener("click",e=>e.stopPropagation()));
 
         // Reference image upload / clear
         container.querySelectorAll("[data-ref-upload]").forEach(b=>b.addEventListener("click",e=>{e.stopPropagation();uploadRef(b.dataset.refUpload);}));
@@ -1586,7 +1682,7 @@ app.registerExtension({
       // are mid-edit on, reset your seed, or swap your reference images. Excluded
       // at BOTH save and load: save keeps stored presets clean; load protects the
       // current values (and shields against older presets that baked these in).
-      const PRESET_EXCLUDE = ["positive", "negative", "seed",
+      const PRESET_EXCLUDE = ["user_prompt", "positive", "negative", "seed",
                               "ref_image1", "ref_image2", "ref_image3"];
 
       const presetConfig = (state) => {
@@ -1701,28 +1797,70 @@ app.registerExtension({
           llmModels = Array.isArray(r.models) ? r.models : [];
           if(!llmModel && llmModels.length) llmModel = llmModels[0];
         }catch(e){ console.warn("[Image Oasis] llm models",e); llmModels=[]; }
+        // Kick off the initial recommendation fetch if a model is selected.
+        // Done after the list arrives so the model name is locked in.
+        if (llmModel) fetchRecommendedLayers();
+      };
+
+      // GET /image_oasis/llm_recommended_layers — backend reads the GGUF header,
+      // triggers a targeted eviction of tracked Comfy models, measures free
+      // VRAM, and returns {total, layers, all}. When Auto is on, the result
+      // also becomes the GPU-layers field value used at enhance time.
+      const fetchRecommendedLayers = async () => {
+        if (!llmModel) { llmRecommended = null; render(); return; }
+        // .safetensors models can't be loaded by the enhancer yet; skip the
+        // call (backend would reject it anyway).
+        if (llmModel.toLowerCase().endsWith(".safetensors")) {
+          llmRecommended = null; render(); return;
+        }
+        llmRecommendedBusy = true; render();
+        try{
+          const r = await fetch("/image_oasis/llm_recommended_layers?model=" + encodeURIComponent(llmModel));
+          const data = await r.json();
+          if (!r.ok || data.error) {
+            llmRecommended = null;
+          } else {
+            llmRecommended = data;
+            if (llmAutoLayers) llmGpuLayers = data.layers;
+          }
+        } catch(e) {
+          console.warn("[Image Oasis] recommended layers", e);
+          llmRecommended = null;
+        } finally {
+          llmRecommendedBusy = false; render();
+        }
       };
 
       const runEnhance = async () => {
         if(wandBusy) return;
-        const cur = (st.positive||"").trim();
-        if(!cur){ console.warn("[Image Oasis] nothing to enhance"); return; }
+        const cur = (st.user_prompt||"").trim();
+        if(!cur){ console.warn("[Image Oasis] nothing to enhance — User Prompt is empty"); return; }
         if(!llmModel){ alert("Select an enhancer model (place .gguf files in models/LLM)."); return; }
-        // Sticky stash: capture the ORIGINAL only if we don't already hold one,
-        // so revert always returns to the first pre-enhance text.
-        if(prewandPrompt===null) prewandPrompt = st.positive;
+        // Layers actually sent: Auto on -> recommendation (or -1 if missing);
+        // Auto off -> the user's manual value. Backend coerces -1 = all.
+        const layersToSend = llmAutoLayers
+          ? (llmRecommended ? llmRecommended.layers : -1)
+          : llmGpuLayers;
         wandBusy = true; render();
         try{
           const r = await fetch("/image_oasis/enhance",{
             method:"POST", headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({prompt:cur, style:llmStyle, model:llmModel, think_off:llmThinkOff, unload_after:true}),
+            body:JSON.stringify({
+              prompt: cur,
+              style: llmStyle,
+              model: llmModel,
+              n_gpu_layers: layersToSend,
+              n_ctx: llmContext,
+              max_tokens: llmMaxTokens,
+            }),
           });
           const data = await r.json();
           if(!r.ok || data.error){
-            // Surface the backend's clear message; leave the prompt untouched.
+            // Surface the backend's clear message; leave the enhanced prompt untouched.
             alert("Enhance failed: " + (data.error || ("HTTP "+r.status)));
-            prewandPrompt = (st.positive===prewandPrompt) ? null : prewandPrompt; // no change made
           } else if(data.enhanced){
+            // Re-clicks always overwrite the Enhanced Prompt — that's the
+            // designed iteration loop. The User Prompt is the sticky source.
             st.positive = data.enhanced;
           }
         }catch(e){
@@ -1730,13 +1868,6 @@ app.registerExtension({
         }finally{
           wandBusy = false; render();
         }
-      };
-
-      const revertWand = () => {
-        if(prewandPrompt===null) return;
-        st.positive = prewandPrompt;
-        prewandPrompt = null;   // next enhance re-captures the now-restored text
-        render();
       };
 
       const loadModels = async () => {
@@ -1772,8 +1903,16 @@ app.registerExtension({
           // ref slot is set as the compare source (null when using "previous").
           compare:{ open:compareOpen, pct:cmpPercent, refIdx:cmpRefIdx },
           // Enhancer picks (model + style) persist across tab switches; the
-          // model list itself is re-fetched on add.
-          wand:{ model:llmModel, style:llmStyle, prewand:prewandPrompt, think_off:llmThinkOff },
+          // model list itself is re-fetched on add. Settings panel state
+          // (Auto + GPU layers + ctx + max_tokens + open/closed) persists too.
+          wand:{
+            model: llmModel, style: llmStyle,
+            settings_open: llmSettingsOpen,
+            auto_layers: llmAutoLayers,
+            gpu_layers: llmGpuLayers,
+            n_ctx: llmContext,
+            max_tokens: llmMaxTokens,
+          },
           // Timer state. `elapsed` restores the frozen between-runs readout;
           // `running` + `start` let a NEW closure resume the live clock after
           // a mid-generation tab switch (validated against the server queue
@@ -1823,10 +1962,11 @@ app.registerExtension({
           if(o.wand){
             if(o.wand.model) llmModel=o.wand.model;
             if(o.wand.style) llmStyle=o.wand.style;
-            if("think_off" in o.wand) llmThinkOff=!!o.wand.think_off;
-            // Restore the revert stash. Use a presence check (not truthiness) so
-            // an empty-string original is preserved; absent key -> nothing to revert.
-            prewandPrompt = ("prewand" in o.wand) ? o.wand.prewand : prewandPrompt;
+            if("settings_open" in o.wand) llmSettingsOpen=!!o.wand.settings_open;
+            if("auto_layers" in o.wand) llmAutoLayers=!!o.wand.auto_layers;
+            if(typeof o.wand.gpu_layers === "number") llmGpuLayers=o.wand.gpu_layers;
+            if(typeof o.wand.n_ctx === "number" && o.wand.n_ctx >= 512) llmContext=o.wand.n_ctx;
+            if(typeof o.wand.max_tokens === "number" && o.wand.max_tokens >= 64) llmMaxTokens=o.wand.max_tokens;
           }
           if(!_restoring){ _restoring=true; setTimeout(()=>{ _restoring=false; render(); },0); }
           // Re-key the result handler to the restored io_id and drain any

@@ -85,22 +85,63 @@ For image-editing architectures like Qwen-Image-Edit. Up to **three** slots. Mos
 
 ## ✍️ Prompt
 
-### Positive prompt
-What you want to see.
+### User Prompt
+Your **short, sketch-style prompt** - the source the enhancer rewrites from. This box is **sticky**: clicking 🪄 Enhance doesn't change it, so you can re-click Enhance over and over to iterate against the same starting point without losing your original.
+
+> 💡 If you're *not* using the enhancer, you can leave User Prompt empty and just type your full prompt into Enhanced Prompt below.
+
+### Enhanced Prompt
+The expanded version of your User Prompt - **this is what actually drives image generation**. Two ways it gets populated:
+- Click 🪄 Enhance and the LLM writes here.
+- Type or paste directly. Hand-edits stick around until the next Enhance click overwrites them.
+
+Every Enhance click **overwrites this box** with a fresh result. That's the designed iteration loop - re-click for a new variation, or hand-tweak the result.
 
 ### Negative prompt
 What you *don't* want. Only used when **CFG > 1**. At CFG = 1 the box grays out and gets ignored - there's no path for it.
 
 ### Prompt Enhancer 🪄 (magic wand)
-A local LLM that rewrites your short prompt into a detailed one. Runs **out-of-band**: it loads when you click the wand, rewrites, and unloads - so it never fights the diffusion model for VRAM during generation.
+A local LLM that rewrites your User Prompt into a detailed Enhanced Prompt. Runs **out-of-band**: it is not part of the generation graph. The model **stays loaded between enhance clicks** (so re-clicking is fast) and unloads automatically when you queue an image, so it never fights the diffusion model for VRAM during generation.
 
-1. Pick an enhancer model from the dropdown.
-2. Pick a style: **Natural Language** or **Tags** (comma-separated, good for SDXL-era).
-3. Click the wand 🪄.
-4. Don't like the result? Hit the revert button ↶ to bring back your original prompt.
+1. Pick an enhancer model from the dropdown. (Drop `.gguf` files in `ComfyUI/models/LLM/` to populate it.)
+2. Pick a style: **Natural Language** (a flowing paragraph, best for Flux / Qwen-Image-Edit / SD3) or **Tags** (comma-separated, best for SDXL-style models).
+3. Type a short prompt into **User Prompt**.
+4. Click the wand 🪄. The result lands in **Enhanced Prompt**.
+5. Want a different take? Click the wand again - the LLM re-enhances from your User Prompt and overwrites the Enhanced Prompt with a fresh result.
 
-### Think mode (💭) vs No-think (⚡)
-For hybrid thinking models. Think mode runs a reasoning pass first - slower, but the output is tighter and less likely to drift. No-think is faster but can produce contradictions. Generally, thinking models are overkill for prompt enhancement. Instruct Abliterated models are recommended for faster iteration.
+> 💡 The first Enhance click is slower (the model loads). Subsequent clicks reuse the loaded model and are fast. The model only unloads when you queue an image generation.
+
+### Auto cleanup
+Different LLMs leak different artifacts in their output - a `<think>...</think>` reasoning block, an orphan `</think>` tag, stray `[INST]` / `[OUT]` / `<<SYS>>` template tokens. Image Oasis strips these for you automatically: there's a `profiles.json` next to `routes_enhance.py` with a list of cleanup profiles, each matching a model filename pattern. First profile that matches wins; nothing matches, a `universal` rule set runs. **Edits to `profiles.json` take effect on the next Enhance click - no ComfyUI restart needed.**
+
+> 💡 If a new model is leaking junk in the output, add a profile for it in `profiles.json` and click Enhance again. You don't need to touch any code.
+
+### Enhancer Settings (collapsible sub-panel at the bottom of the Prompt section)
+Click the **Enhancer Settings** header to expand. Three knobs, all optional - defaults are tuned for the curated model set.
+
+- **Auto GPU layers** (checkbox, on by default). When on, Image Oasis reads the GGUF header for the model's layer count, checks live free VRAM, and picks how many layers to put on the GPU - shown next to the checkbox as **Recommended: All (N)** when the whole model fits, or **Recommended: K/N** when only a partial offload fits. The reading happens after evicting the diffusion model, so it reflects what will actually be free at enhance time.
+- **GPU layers** (number field). Manual override - only editable when Auto is off. `-1` = put everything on the GPU and let llama.cpp figure it out. Anything `0` or higher is a literal layer count.
+- **Context** (number field). The LLM's context window size (`n_ctx`). Default 8192. Bigger = longer inputs/outputs work, but uses more VRAM at load time.
+- **Max tokens** (number field). The maximum number of tokens the LLM will emit per Enhance click. Default 2048. Capped internally against what your Context can actually hold after the input, so over-large values just clamp.
+
+> ⚠ Only disable **Auto GPU layers** if you know what you're doing. An over-aggressive manual value will OOM the model load. Image Oasis retries on CPU as a backstop, but you'll have given up the GPU speedup.
+
+### Picking an enhancer model
+
+Use an abliterated GGUF - at the largest size + quant that fully fits your VRAM.
+
+Recommended models for low-VRAM setups:
+
+```
+Model                            Quant  Tier
+Llama3.3 8B Instruct Abliterated Q5_K_M (A)
+Mistral 7B Instruct Abliterated  Q5_K_M (S)
+Qwen2.5 7B Instruct Abliterated  Q5_K_M (C)
+Qwen3 8B Abliterated             Q4_K_M (C)
+Qwen3.5 9B Abliterated           Q4_K_M (B)
+SuperGemma4 E4B Abliterated      Q5_K_M (A)
+WizardLM-2 7B Abliterated        Q5_K_M (S)
+```
 
 ---
 
