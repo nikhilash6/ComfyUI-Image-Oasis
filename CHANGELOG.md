@@ -1,10 +1,21 @@
 # Changelog
 
+## v1.3
+
+### Added
+- Added Krea 2 (Turbo and Raw) as a first-class architecture. Uses the new `krea2` CLIP type for Qwen3-VL-4B's 12-layer stacked hidden state; the 1.15 flow shift is baked into the model config, so no sampling patch is applied.
+- Added `krea2` to the CLIP type dropdown to expose the new text encoder path.
+
+### Notes
+- Krea 2 produces black images when ComfyUI is launched with `--use-sage-attention`. Remove the flag if you're generating with Krea 2. Other architectures are unaffected.
+
+---
+
 ## v1.2
 
 ### Added
 - Added a new feature that splits the prompt enhancer into two textareas: a sticky **User Prompt** (your short input) and an **Enhanced Prompt** (the result that drives generation). Re-clicking Enhance always re-runs from the User Prompt, so iterating no longer means losing your original.
-- Added a new feature that auto-cleans model-specific output artifacts from enhancer results (`<think>` blocks, orphan `</think>` tags, leaked `[INST]` / `[OUT]` / `<<SYS>>` template tokens, etc.) via `profiles.json`. Profiles are auto-resolved from the model filename with a universal fallback; edit the file to add rules for new models — no restart needed.
+- Added a new feature that auto-cleans model-specific output artifacts from enhancer results (`<think>` blocks, orphan `</think>` tags, leaked `[INST]` / `[OUT]` / `<<SYS>>` template tokens, etc.) via `profiles.json`. Profiles are auto-resolved from the model filename with a universal fallback; edit the file to add rules for new models - no restart needed.
 - Added an **Enhancer Settings** sub-panel at the bottom of the Prompt section (collapsed by default): Auto GPU layers with a live VRAM-based recommendation, manual GPU layers override, Context, and Max tokens. The recommendation is computed from the GGUF header's layer count and current free VRAM whenever the model selection changes.
 
 ### Improved
@@ -16,7 +27,7 @@
 
 ### Removed
 - Removed the Think / No-think toggle. Thinking models now work cleanly out of the box because the auto-cleanup profiles strip the `<think>` block from the output.
-- Removed the revert button. With User Prompt and Enhanced Prompt as separate boxes, your original is never overwritten — re-clicking Enhance just re-runs from the User Prompt.
+- Removed the revert button. With User Prompt and Enhanced Prompt as separate boxes, your original is never overwritten - re-clicking Enhance just re-runs from the User Prompt.
 
 ---
 

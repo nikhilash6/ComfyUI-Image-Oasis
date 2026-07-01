@@ -463,16 +463,16 @@ async function applyNamedTheme(id){
 const esc = (s) => String(s ?? "")
   .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
-const ARCHS = ["auraflow","flux","qwen_image_edit","other","sd3"];
-const ARCH_LABELS = {auraflow:"AuraFlow",flux:"Flux.1 / Flux.2",other:"SD1 / SD1.5 / No Patch",sd3:"SD3 / SD3.5",qwen_image_edit:"Qwen-Image-Edit"};
+const ARCHS = ["auraflow","flux","krea2","qwen_image_edit","other","sd3"];
+const ARCH_LABELS = {auraflow:"AuraFlow",flux:"Flux.1 / Flux.2",krea2:"Krea 2 (Turbo / Raw)",other:"SD1 / SD1.5 / No Patch",sd3:"SD3 / SD3.5",qwen_image_edit:"Qwen-Image-Edit"};
 // How many CLIP slots each arch exposes in the UI (mirrors clip_slots in
 // registry.py). State preserves all three values regardless; nodes.py trims
 // at runtime so a 1-slot arch never loads with stale slot-2/3 values.
-const CLIP_SLOTS = {auraflow:1, flux:2, qwen_image_edit:1, other:2, sd3:3};
+const CLIP_SLOTS = {auraflow:1, flux:2, krea2:1, qwen_image_edit:1, other:2, sd3:3};
 const SOURCES = ["checkpoint","diffusion","gguf"];
 const SOURCE_LABELS = {checkpoint:"Checkpoint", diffusion:"Diffusion", gguf:"GGUF"};
 const WEIGHT_DTYPES = ["default","fp8_e4m3fn","fp8_e4m3fn_fast","fp8_e5m2"];
-const CLIP_TYPES = ["","stable_diffusion","sd3","flux","qwen_image","lumina2","hidream","chroma","flux2"];
+const CLIP_TYPES = ["","stable_diffusion","sd3","flux","qwen_image","lumina2","hidream","chroma","flux2","krea2"];
 const UPSCALE_MODES = ["algorithmic","model"];
 const UPSCALE_METHODS = ["lanczos","bicubic","bilinear","nearest-exact","area"];
 const MAX_SEED = 1125899906842624;  // 2^50, matches ComfyUI's seed range

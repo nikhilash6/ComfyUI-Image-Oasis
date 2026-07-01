@@ -8,13 +8,14 @@ finished image - with an optional prompt enhancer, refiner pass, and upscale.
 
 * **Tri-source model loading**: checkpoint / diffusion (unet) / GGUF
 * **Architecture switching** via a dropdown (a capability *registry* replaces
-every "Switch (Any)" node): AuraFlow, Flux.1 / Flux.2, Qwen-Image-Edit,
-SD1 / SD1.5 / No Patch (the SDXL/SD1.x escape hatch), SD3 / SD3.5
+every "Switch (Any)" node): AuraFlow, Flux.1 / Flux.2, Krea 2 (Turbo / Raw),
+Qwen-Image-Edit, SD1 / SD1.5 / No Patch (the SDXL/SD1.x escape hatch),
+SD3 / SD3.5
 * **Architecture-correct model-sampling patch** (ModelSamplingFlux /
 DiscreteFlow with the right multiplier), with arch-default shift values
 * **Per-architecture CLIP slots** - single, dual, or triple, automatically
 surfaced based on the chosen architecture (Flux gets 2, SD3/3.5 gets 3,
-AuraFlow/Qwen gets 1, etc.). Mixed safetensors + GGUF CLIPs are supported
+AuraFlow/Krea 2/Qwen gets 1, etc.). Mixed safetensors + GGUF CLIPs are supported
 through `ComfyUI-GGUF`'s `DualCLIPLoaderGGUF`/`TripleCLIPLoaderGGUF`
 * **LoRA stack**: any number of LoRAs applied to model + CLIP in order, each with
 its own model/CLIP strength and an optional trigger-words field that auto-

@@ -43,6 +43,15 @@ ARCH_REGISTRY = {
         "default_clip_type": "flux",
         "clip_slots": 2,                # clip_l + t5xxl (Flux.2 Klein users leave slot 2 empty)
     },
+    "krea2": {
+        "label": "Krea 2 (Turbo / Raw)",
+        "loaders": ALL_SOURCES,
+        "sampling": "none",             # 1.15 shift is baked into the model config
+        "shift_default": 3.0,           # unused (sampling: none) — kept for state consistency
+        "accepts_image_cond": False,
+        "default_clip_type": "krea2",
+        "clip_slots": 1,                # single Qwen3-VL-4B TE
+    },
     "qwen_image_edit": {
         "label": "Qwen-Image-Edit",
         "loaders": ALL_SOURCES,         # incl. AIO checkpoints (e.g. Phr00t Rapid-AIO)

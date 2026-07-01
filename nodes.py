@@ -348,15 +348,22 @@ class ImageOasis:
         steps = int(cfg["steps"]); cfg_scale = float(cfg["cfg"])
         sampler_name = cfg["sampler_name"]; scheduler = cfg["scheduler"]
         denoise = float(cfg["denoise"])
-        clip_file = cfg["clip_file"]; clip_file_2 = cfg["clip_file_2"]; clip_file_3 = cfg["clip_file_3"]; vae_file = cfg["vae_file"]
-        clip_bundled = bool(cfg["clip_bundled"]); vae_bundled = bool(cfg["vae_bundled"])
-        weight_dtype = cfg["weight_dtype"]; clip_type = cfg["clip_type"]
+        clip_file = cfg["clip_file"]
+        clip_file_2 = cfg["clip_file_2"]
+        clip_file_3 = cfg["clip_file_3"]
+        vae_file = cfg["vae_file"]
+        clip_bundled = bool(cfg["clip_bundled"])
+        vae_bundled = bool(cfg["vae_bundled"])
+        weight_dtype = cfg["weight_dtype"]
+        clip_type = cfg["clip_type"]
         shift = float(cfg["shift"])
         enable_refiner = bool(cfg["enable_refiner"])
-        refiner_steps = int(cfg["refiner_steps"]); refiner_cfg = float(cfg["refiner_cfg"])
+        refiner_steps = int(cfg["refiner_steps"])
+        refiner_cfg = float(cfg["refiner_cfg"])
         refiner_denoise = float(cfg["refiner_denoise"])
         enable_upscale = bool(cfg["enable_upscale"])
-        upscale_mode = cfg["upscale_mode"]; upscale_method = cfg["upscale_method"]
+        upscale_mode = cfg["upscale_mode"]
+        upscale_method = cfg["upscale_method"]
         upscale_multiplier = float(cfg["upscale_multiplier"])
         upscale_model_file = cfg["upscale_model_file"]
 

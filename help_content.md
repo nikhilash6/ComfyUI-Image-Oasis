@@ -28,18 +28,21 @@ This is where you pick what actually generates the image.
 Tell Image Oasis what *kind* of model you loaded so sampling is configured correctly:
 - **AuraFlow** - AuraFlow flow-matching using models like Z-Image Turbo.
 - **Flux.1 / Flux.2** - Black Forest Labs flow-matching.
+- **Krea 2 (Turbo / Raw)** - Krea's 12B DiT. Turbo is 8-step distilled (CFG 1.0); Raw uses standard flow-matching (more steps, positive CFG).
 - **Qwen-Image-Edit** - Alibaba's image editor. Takes reference images.
 - **SD1 / SD1.5 / No Patch** - catch-all for SD1, SD1.5, SDXL, and anything else that doesn't need a flow-matching sampling patch. **This is the correct choice for SDXL.**
 - **SD3 / SD3.5** - Stable Diffusion 3 / 3.5.
 
 > 💡 If you pick the wrong arch you'll get garbage or a solid gray image - the sampler is being patched for a different math regime. When in doubt, try **SD1 / SD1.5 / No Patch** first since "no patch" is always safe to fall back to.
 
+> ⚠️ **Krea 2 + Sage attention = black images.** If you're launching ComfyUI with `--use-sage-attention` and getting solid black output from Krea 2, remove the flag. Other architectures (Flux, Qwen, SD3, SDXL, etc.) are unaffected.
+
 ### CLIP / VAE
 If the checkpoint bundles its own CLIP and VAE, those dropdowns disappear. If not, you pick them yourself.
 
 ### CLIP slots (per architecture)
 The number of CLIP dropdowns you see depends on the selected architecture:
-- **AuraFlow, Qwen-Image-Edit** - one CLIP slot.
+- **AuraFlow, Krea 2, Qwen-Image-Edit** - one CLIP slot.
 - **Flux.1 / Flux.2, SD1 / SD1.5 / No Patch** - two slots (slot 2 optional). Flux uses `clip_l + t5xxl`; SDXL uses `clip_l + clip_g`; SD1.5 / Flux.2 Klein leave slot 2 empty.
 - **SD3 / SD3.5** - three slots (`clip_l + clip_g + t5xxl`). The triple-CLIP combo produces noticeably better quality than dual on SD3.5.
 
