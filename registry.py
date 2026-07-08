@@ -34,6 +34,20 @@ ARCH_REGISTRY = {
         "default_clip_type": "stable_diffusion",
         "clip_slots": 1,                # single TE (Pile-T5 family)
     },
+    "boogu": {
+        "label": "Boogu-Image 0.1 (Base / Turbo)",
+        "loaders": ALL_SOURCES,
+        "sampling": "none",             # 3.16 shift is baked into the model config
+        "shift_default": 3.0,           # unused (sampling: none) — kept for state consistency
+        "accepts_image_cond": False,    # the Edit variant uses Omnigen-style
+                                        # ref_latents, a different mechanism than
+                                        # IO's Qwen edit path — unsupported for now
+        "default_clip_type": "boogu",   # Qwen3-VL-8B via ComfyUI's Boogu tokenizer;
+                                        # attaches the attention mask the model's
+                                        # num_tokens argument is derived from — a
+                                        # generic clip type crashes the forward
+        "clip_slots": 1,                # single Qwen3-VL-8B TE
+    },
     "flux": {
         "label": "Flux.1 / Flux.2",
         "loaders": ALL_SOURCES,
@@ -51,6 +65,26 @@ ARCH_REGISTRY = {
         "accepts_image_cond": False,
         "default_clip_type": "krea2",
         "clip_slots": 1,                # single Qwen3-VL-4B TE
+        # Startup flags that corrupt this architecture. nodes.py checks these
+        # against comfy.cli_args and refuses the run BEFORE loading anything —
+        # sage-attention breaks Krea 2's attention layout and produces silent
+        # NaN latents (black images) with no error.
+        "incompatible_flags": ("use_sage_attention",),
+        # Automatic conditioning rebalance, applied post-encode in nodes.py.
+        # Krea 2 conditions on 12 stacked Qwen3-VL hidden-state taps (shallow
+        # -> deep, packed into one (B, seq, 12*2560) tensor); alignment
+        # training under-weights the deep taps that carry fine detail and
+        # identity. These per-layer gains restore them (the community
+        # "balanced" profile), RMS-renormalized in stage_load so tap RATIOS
+        # shift while overall conditioning magnitude is held — the validated
+        # quality-preserving configuration. Positive conditioning only.
+        # Technique: nova452/ComfyUI-ConditioningKrea2Rebalance, refined by
+        # huwhitememes/comfyui-krea2-conditioning (both Apache-2.0).
+        "cond_rebalance": {
+            "taps": 12,
+            "weights": (1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                        2.5, 5.0, 1.1, 4.0, 1.0),
+        },
     },
     "qwen_image_edit": {
         "label": "Qwen-Image-Edit",
@@ -85,6 +119,14 @@ ARCH_REGISTRY = {
 }
 
 ARCH_KEYS = list(ARCH_REGISTRY.keys())
+
+# CLIP type choices for the frontend dropdown, served via /image_oasis/models
+# (empty string = "use the architecture's default_clip_type"). Curated on
+# purpose: comfy.sd.CLIPType has 30+ entries, mostly video-model types that
+# would only confuse an image node's users. Add here when a new image model
+# needs a type — registry-only change, no frontend edit.
+CLIP_TYPE_CHOICES = ("", "stable_diffusion", "sd3", "flux", "qwen_image",
+                     "lumina2", "hidream", "chroma", "flux2", "krea2", "boogu")
 
 
 def get_arch(name):

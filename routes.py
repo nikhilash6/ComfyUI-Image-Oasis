@@ -95,6 +95,23 @@ async def image_oasis_models(request):
         unet = _list_folder("unet", "diffusion_models")
         te = _list_folder("text_encoders", "clip")
 
+        # Arch definitions straight from the registry — the frontend builds
+        # its dropdown and image-cond gating from these, so adding an arch is
+        # a registry.py-only change.
+        try:
+            reg = _get_registry()
+            archs = [{
+                "key": k,
+                "label": v.get("label", k),
+                "image_cond": bool(v.get("accepts_image_cond")),
+                "clip_slots": int(v.get("clip_slots", 1)),
+            } for k, v in reg.ARCH_REGISTRY.items()]
+            clip_types = list(getattr(reg, "CLIP_TYPE_CHOICES", ()))
+        except Exception as e:
+            print(f"[Image Oasis] Could not read arch registry: {e}")
+            archs = []
+            clip_types = []
+
         return {
             "checkpoints": ckpts,
             "diffusion":   sorted(f for f in unet if not f.lower().endswith(".gguf")),
@@ -104,9 +121,11 @@ async def image_oasis_models(request):
             "vaes":        vaes,
             "upscale_models": upscales,
             "loras":       loras,
+            "archs":       archs,
+            "clip_types":  clip_types,
         }
 
-    data = await _run_blocking(lambda: _ttl_cached("image_oasis_models_v1", 5.0, compute))
+    data = await _run_blocking(lambda: _ttl_cached("image_oasis_models_v3", 5.0, compute))
     return web.json_response(data)
 
 
@@ -164,6 +183,23 @@ def _atomic_write_json(path, data):
     except Exception as e:
         print(f"[Image Oasis] Failed to write {os.path.basename(path)}: {e}")
         return False
+
+
+def _get_registry():
+    """Return the registry module, reusing nodes.py's sibling-module namespace
+    (image_oasis_registry) when it's already loaded — same file either way.
+    Lets the /models route serve arch definitions straight from the registry
+    so the frontend has no hand-synced mirror to drift."""
+    key = "image_oasis_registry"
+    if key in sys.modules:
+        return sys.modules[key]
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "registry.py")
+    spec = importlib.util.spec_from_file_location(key, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[key] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _resolve_under(base, *parts):
@@ -277,7 +313,8 @@ async def image_oasis_save_theme(request):
                "--io-bg2", "--io-bd", "--io-dim"}
     clean = {k: str(v)[:32] for k, v in (data or {}).items()
              if k in allowed and isinstance(v, str)}
-    _atomic_write_json(_THEME_FILE, clean)
+    if not _atomic_write_json(_THEME_FILE, clean):
+        return web.json_response({"error": "Could not write theme.json."}, status=500)
     return web.json_response({"ok": True, "theme": clean})
 
 
@@ -300,7 +337,7 @@ def _load_named_themes():
 
 
 def _save_named_themes(t):
-    _atomic_write_json(_THEMES_FILE, t)
+    return _atomic_write_json(_THEMES_FILE, t)
 
 
 @routes.get("/image_oasis/themes")
@@ -334,7 +371,8 @@ async def image_oasis_save_named_theme(request):
         themes[idx] = entry
     else:
         themes.insert(0, entry)
-    _save_named_themes(themes)
+    if not _save_named_themes(themes):
+        return web.json_response({"error": "Could not write themes.json."}, status=500)
     return web.json_response({"ok": True, "id": entry["id"]})
 
 
@@ -394,7 +432,10 @@ def _check_checkpoint_bundles(filename):
 
 @routes.post("/image_oasis/check_bundle")
 async def image_oasis_check_bundle(request):
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Bad request body."}, status=400)
     fn = data.get("filename", "")
     if not fn:
         return web.json_response({"has_clip": False, "has_vae": False})
@@ -410,6 +451,28 @@ async def image_oasis_check_bundle(request):
 # can be friendlier than the GitHub readme.
 
 _HELP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "help_content.md")
+
+
+@routes.get("/image_oasis/input_info")
+async def image_oasis_input_info(request):
+    """Resolution + file size for an image in ComfyUI's input folder. Powers
+    the info line under each reference slot's upload button. PIL reads only
+    the header (no pixel decode), so this is effectively free even for large
+    files. Missing/invalid names 404 and the UI simply omits the line."""
+    fn = (request.rel_url.query.get("filename") or "").strip()
+    if not fn:
+        return web.json_response({"error": "Missing filename."}, status=400)
+    path = _resolve_under(folder_paths.get_input_directory(), fn)
+    if not path or not os.path.isfile(path):
+        return web.json_response({"error": "Not found."}, status=404)
+    try:
+        size = os.path.getsize(path)
+        from PIL import Image as _PILImage
+        with _PILImage.open(path) as im:
+            w, h = im.size
+        return web.json_response({"width": int(w), "height": int(h), "size": int(size)})
+    except Exception as e:
+        return web.json_response({"error": f"Could not read image info: {e}"}, status=500)
 
 
 @routes.get("/image_oasis/help")

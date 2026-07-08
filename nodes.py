@@ -12,7 +12,7 @@ Pipeline:
 
 import os
 import sys
-import importlib
+import importlib.util
 
 # Robust sibling imports.
 #
@@ -49,11 +49,6 @@ ARCH_REGISTRY = registry.ARCH_REGISTRY
 ARCH_KEYS = registry.ARCH_KEYS
 get_arch = registry.get_arch
 validate_combo = registry.validate_combo
-
-
-def _arch_dropdown():
-    # Show friendly labels mapped back to keys via a parallel lookup.
-    return ARCH_KEYS  # keys are short and clear enough to show directly
 
 
 import folder_paths
@@ -165,7 +160,6 @@ def _load_input_image(filename):
 # dropped, not accumulated).
 
 import hashlib as _hashlib
-import json as _json_cache
 import uuid as _uuid
 
 _RAWLOAD_CACHE = {}  # unique_id -> (key, model, clip, vae) — raw disk load only
@@ -214,34 +208,58 @@ def clear_caches():
 
 def _cache_key(payload):
     return _hashlib.sha256(
-        _json_cache.dumps(payload, sort_keys=True, default=str).encode()
+        _json.dumps(payload, sort_keys=True, default=str).encode()
     ).hexdigest()
 
 
-def _tensor_digest(t):
-    """Stable digest of an IMAGE tensor's contents (or None).
-
-    Keying the conditioning cache on reference-image *contents* rather than
-    filenames is required for the Qwen-Image-Edit path: the uploader overwrites
-    in place (overwrite:"true"), so a new image can reuse an old filename. We
-    hash the raw bytes so re-encoding triggers when the pixels change even if
-    the name doesn't. Shape/dtype are folded in to disambiguate.
-    """
-    if t is None:
+def _resolve_input_path(filename):
+    """Resolve an input-folder filename to an absolute path, or None when the
+    name is empty or the file doesn't exist on disk."""
+    if not filename:
         return None
     try:
-        arr = t.detach().cpu().contiguous().numpy()
-        h = _hashlib.sha256()
-        h.update(str(arr.shape).encode())
-        h.update(str(arr.dtype).encode())
-        h.update(arr.tobytes())
-        return h.hexdigest()
+        path = folder_paths.get_annotated_filepath(filename)
+        return path if path and os.path.isfile(path) else None
     except Exception:
-        # Never let a hashing failure break generation; fall back to a sentinel
-        # that forces a re-encode (correct, just not cached) for this run. The
-        # sentinel must be UNIQUE per call — a constant here would make two
-        # consecutive failures produce identical cache keys, i.e. a stale HIT.
-        return f"uncacheable-{_uuid.uuid4().hex}"
+        return None
+
+
+_FILE_DIGEST_MEMO = {}   # path -> (mtime_ns, size, sha256_hex)
+
+
+def _file_digest(path):
+    """Content digest of a file, memoized on (mtime, size).
+
+    Keying the caches on image *contents* rather than filenames is required:
+    the uploader overwrites in place (overwrite:"true"), so a new image can
+    reuse an old filename. The memo makes the steady state free — a seed-only
+    rerun does a stat call per image instead of a read+decode+hash. Any
+    overwrite bumps mtime/size, which invalidates the memo entry and rehashes,
+    so pixel changes still bust the caches even under a reused name. Returns
+    None (never raises) so missing refs keep their soft-skip behavior; callers
+    that require the file (img2img init) check for None and raise themselves.
+    """
+    if not path:
+        return None
+    try:
+        stt = os.stat(path)
+        hit = _FILE_DIGEST_MEMO.get(path)
+        if hit and hit[0] == stt.st_mtime_ns and hit[1] == stt.st_size:
+            return hit[2]
+        h = _hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        digest = h.hexdigest()
+        if len(_FILE_DIGEST_MEMO) > 512:
+            # Bound the memo over long sessions; drop the oldest half
+            # (insertion order — good enough for an input-folder working set).
+            for k in list(_FILE_DIGEST_MEMO)[:256]:
+                _FILE_DIGEST_MEMO.pop(k, None)
+        _FILE_DIGEST_MEMO[path] = (stt.st_mtime_ns, stt.st_size, digest)
+        return digest
+    except Exception:
+        return None
 
 
 # Default config — the JS widget overrides these via the image_oasis_ui blob.
@@ -254,6 +272,7 @@ _DEFAULTS = {
     "width": 1024, "height": 1024, "batch_size": 1, "seed": 0,
     "steps": 20, "cfg": 3.5, "sampler_name": "euler", "scheduler": "simple",
     "denoise": 1.0, "seed_control": "randomize",
+    "variety": 0.0,
     "clip_file": "", "clip_file_2": "", "clip_file_3": "", "vae_file": "",
     "clip_bundled": False, "vae_bundled": False,
     "weight_dtype": "default", "clip_type": "", "shift": 0.0,
@@ -266,6 +285,11 @@ _DEFAULTS = {
     "upscale_model_file": "",
     # Reference images: uploaded into ComfyUI's input folder; blob carries names.
     "ref_image1": "", "ref_image2": "", "ref_image3": "",
+    # Img2img init image (occupancy = enabled; only active on non-image-cond
+    # arches) and the Fit Method ("stretch" | "crop" | "pad") that conforms
+    # BOTH image paths to the latent size: the init image on non-Qwen arches,
+    # the edit references on Qwen.
+    "init_image": "", "fit_method": "crop",
 }
 
 
@@ -293,8 +317,8 @@ class ImageOasis:
     NAME = "Image Oasis"
     DESCRIPTION = (
         "All-in-one image generation: switchable architecture (Flux, Qwen-Image-Edit, "
-        "SD3, AuraFlow), tri-source model loading, sampling patch, refiner pass, "
-        "and optional upscale — in a single node."
+        "SD3, AuraFlow, Krea 2), tri-source model loading, sampling patch, img2img "
+        "init, refiner pass, and optional upscale — in a single node."
     )
 
     def generate(self, unique_id=None, prompt=None, extra_pnginfo=None):
@@ -343,11 +367,16 @@ class ImageOasis:
         model_file = cfg["model_file"]
         positive = cfg["positive"]
         negative = cfg["negative"]
-        width = int(cfg["width"]); height = int(cfg["height"])
-        batch_size = int(cfg["batch_size"]); seed = int(cfg["seed"])
-        steps = int(cfg["steps"]); cfg_scale = float(cfg["cfg"])
-        sampler_name = cfg["sampler_name"]; scheduler = cfg["scheduler"]
+        width = int(cfg["width"])
+        height = int(cfg["height"])
+        batch_size = int(cfg["batch_size"])
+        seed = int(cfg["seed"])
+        steps = int(cfg["steps"])
+        cfg_scale = float(cfg["cfg"])
+        sampler_name = cfg["sampler_name"]
+        scheduler = cfg["scheduler"]
         denoise = float(cfg["denoise"])
+        variety = min(1.0, max(0.0, float(cfg["variety"] or 0.0)))
         clip_file = cfg["clip_file"]
         clip_file_2 = cfg["clip_file_2"]
         clip_file_3 = cfg["clip_file_3"]
@@ -409,18 +438,73 @@ class ImageOasis:
         # ── Validate up front (cheap, before any loading) ──────────────────
         spec = validate_combo(architecture, source_type)
 
-        # Reference images: load from uploaded filenames (monolith, no sockets).
-        # Gated on the arch actually consuming them — otherwise every queue
-        # would re-read + content-hash up to three images that get ignored,
-        # and editing a ref slot would bust the conditioning cache for nothing.
+        # Fail fast on startup flags known to corrupt this architecture
+        # (registry-driven via `incompatible_flags`). Example: Krea 2 +
+        # --use-sage-attention produces silent NaN latents (black images) with
+        # no error — refusing the run here beats wasting it and debugging a
+        # black square. Checked before any loading.
+        bad_flags = spec.get("incompatible_flags") or ()
+        if bad_flags:
+            try:
+                from comfy.cli_args import args as _cli_args
+            except Exception:
+                _cli_args = None
+            if _cli_args is not None:
+                for flag in bad_flags:
+                    if getattr(_cli_args, flag, False):
+                        raise ValueError(
+                            f"[Image Oasis] Architecture '{architecture}' is "
+                            f"incompatible with --{flag.replace('_', '-')} "
+                            "(it corrupts the model's attention layout and "
+                            "produces NaN latents). Remove the flag from your "
+                            "ComfyUI startup and restart.")
+
+        # Reference images (monolith, no sockets): resolve paths and content
+        # digests here — the digests feed the cache keys — but do NOT load or
+        # decode pixels yet. Tensors are only materialized inside the cache
+        # MISS branches that actually encode them, so a seed-only rerun costs
+        # a stat call per image instead of a read+decode+hash.
         ref_names = (cfg["ref_image1"], cfg["ref_image2"], cfg["ref_image3"])
+        fit_method = cfg["fit_method"] or "crop"
         if spec["accepts_image_cond"]:
-            image1, image2, image3 = (_load_input_image(n) for n in ref_names)
+            ref_digests = []
+            for n in ref_names:
+                if not n:
+                    ref_digests.append(None)
+                    continue
+                d = _file_digest(_resolve_input_path(n))
+                if d is None:
+                    # Named but missing/unreadable: keep the soft-skip (the
+                    # encode pass loads what it can), but key it uniquely so
+                    # it can never produce a stale cache HIT against an
+                    # empty-slot key.
+                    print(f"[Image Oasis] Note: reference image '{n}' could "
+                          "not be read — it will be skipped.")
+                    d = f"uncacheable-{_uuid.uuid4().hex}"
+                ref_digests.append(d)
         else:
-            image1 = image2 = image3 = None
+            ref_digests = [None, None, None]
             if any(ref_names):
                 print(f"[Image Oasis] Note: architecture '{architecture}' does "
                       f"not use reference images — they will be ignored.")
+
+        # Img2img init image (occupancy = enabled). Only active on non-Qwen
+        # arches; on image-cond arches the slot is inert (UI dims it too).
+        # A named-but-unresolvable init errors loudly — at stat time, before
+        # any model loading — rather than silently falling back to txt2img.
+        init_name = cfg["init_image"]
+        init_digest = None
+        if init_name and not spec["accepts_image_cond"]:
+            init_digest = _file_digest(_resolve_input_path(init_name))
+            if init_digest is None:
+                raise ValueError(
+                    f"[Image Oasis] Img2img init image could not be found: "
+                    f"{init_name}. Re-upload it, or clear the Init slot to "
+                    "generate from noise.")
+        elif init_name and spec["accepts_image_cond"]:
+            print(f"[Image Oasis] Note: init image ignored — architecture "
+                  f"'{architecture}' uses the Qwen edit slots instead.")
+        img2img_on = init_digest is not None
 
         # Resolve arch-derived defaults where the user left a field neutral.
         effective_clip_type = (clip_type or "").strip() or spec["default_clip_type"]
@@ -431,8 +515,10 @@ class ImageOasis:
         # so switching arches doesn't destroy prior picks, but a 1-slot arch
         # must never trigger a triple-CLIP load with stale slot-2/3 values.
         n_clip_slots = spec.get("clip_slots", 1)
-        if n_clip_slots < 2: clip_file_2 = ""
-        if n_clip_slots < 3: clip_file_3 = ""
+        if n_clip_slots < 2:
+            clip_file_2 = ""
+        if n_clip_slots < 3:
+            clip_file_3 = ""
 
         # Mark this instance as live in the bounded cache LRU (may evict the
         # least-recently-run instance's caches across all tiers).
@@ -509,22 +595,61 @@ class ImageOasis:
             "load": load_key,
             "pos": positive, "neg": effective_neg,
             "image_cond": spec["accepts_image_cond"],
-            "refs": [_tensor_digest(image1), _tensor_digest(image2),
-                     _tensor_digest(image3)],
+            "refs": ref_digests,
+            # Refs are conformed to the latent size at encode time (see the
+            # MISS branch), so the conform inputs are part of what the cached
+            # conditioning encodes — W/H or Fit Method changes must bust it.
+            "ref_conform": ([int(width), int(height), fit_method]
+                            if spec["accepts_image_cond"] else None),
         })
         cached_cond = _COND_CACHE.get(unique_id)
         if cached_cond and cached_cond[0] == cond_key:
             positive_cond, negative_cond = cached_cond[1], cached_cond[2]
         else:
+            # Materialize + conform the refs only now that we know we're
+            # encoding. Conforming with the Fit Method gives the user control
+            # over how the edit source maps onto the output canvas
+            # (TextEncodeQwenImageEditPlus otherwise applies its own internal
+            # scaling policy without asking).
+            if spec["accepts_image_cond"]:
+                image1, image2, image3 = tuple(
+                    (stage_load.conform_image(img, width, height, fit_method)
+                     if img is not None else None)
+                    for img in (_load_input_image(n) for n in ref_names))
+            else:
+                image1 = image2 = image3 = None
             positive_cond, negative_cond = stage_load.encode_conditioning(
                 clip_obj=clip, vae_obj=vae,
                 pos_text=positive, neg_text=effective_neg,
                 accepts_image_cond=spec["accepts_image_cond"],
-                image_edit_on=spec["accepts_image_cond"],  # auto-on when arch supports it
                 image1=image1, image2=image2, image3=image3)
+            # Arch-declared conditioning rebalance (currently Krea 2's 12-tap
+            # Qwen3-VL stack — see the registry entry for the why). Applied to
+            # the POSITIVE only, automatically and unconditionally for arches
+            # that declare it: it's part of how this arch encodes, not a user
+            # control. Deterministic per arch, and arch is already in the
+            # cache key via load_key, so caching the rebalanced result is
+            # correct and makes it free on every hit.
+            _reb = spec.get("cond_rebalance")
+            if _reb:
+                positive_cond = stage_load.rebalance_conditioning(
+                    positive_cond, _reb["weights"])
             _COND_CACHE[unique_id] = (cond_key, positive_cond, negative_cond)
 
-        latent = stage_load.make_latent(vae, width, height, batch_size)
+        # Variety (seed-diversity noise), applied per RUN on the cached raw
+        # conditioning — never stored back into the cache. It depends on the
+        # seed, so baking it into the cond cache would bust the expensive
+        # encode on every seed change; as a cheap post-cache tensor op it
+        # costs nothing and the cache keeps its meaning. Reproducible: the
+        # noise derives from the generation seed, and strength + seed both
+        # ride the base cache key below.
+        if variety > 0.0:
+            positive_cond = stage_load.apply_variety_noise(
+                positive_cond, variety, int(seed))
+
+        # (Latent construction moved into the base-cache MISS branch below:
+        # the txt2img empty latent is free, but the img2img path VAE-encodes
+        # the init image — no reason to pay that on a cache hit.)
 
         # ── Stage 2: sampling chain (base [+ refiner]) ─────────────────────
         # Two independently-cached stages mirroring two chained KSampler nodes.
@@ -542,22 +667,43 @@ class ImageOasis:
         }
 
         # Base sampling (cached): keyed on the conditioning (which folds in model
-        # + prompt + refs), the seed, latent geometry, and the base pass params
-        # ONLY — NOT on the refiner or any upscale setting. So enabling the
-        # refiner, or changing a refiner/upscale control, leaves this key
-        # untouched and reuses the cached base LATENT instead of re-sampling it.
-        # We cache the latent (not a decoded image) because the refiner continues
-        # in latent space with no decode between passes.
+        # + prompt + refs), the seed, latent geometry, the base pass params, and
+        # the img2img init (content digest + fit mode; None when inactive) —
+        # NOT on the refiner or any upscale setting. So enabling the refiner,
+        # or changing a refiner/upscale control, leaves this key untouched and
+        # reuses the cached base LATENT instead of re-sampling it, while
+        # clearing/swapping the init image or changing its fit mode correctly
+        # busts base + refined. We cache the latent (not a decoded image)
+        # because the refiner continues in latent space with no decode between
+        # passes.
         base_key = _cache_key({
             "cond": cond_key,
             "seed": int(seed),
+            "variety": variety,
             "geometry": [int(width), int(height), int(batch_size)],
             "base": base_pass,
+            "img2img": ({"digest": init_digest, "fit": fit_method}
+                        if img2img_on else None),
         })
         cached_base = _BASE_CACHE.get(unique_id)
         if cached_base and cached_base[0] == base_key:
             base_latent = cached_base[1]
         else:
+            if img2img_on:
+                # Materialize the init image only now that we're sampling.
+                # The stat-time check above already vouched for the file, but
+                # the decode can still fail (corrupt file) — same loud error,
+                # never a silent txt2img fallback.
+                init_image = _load_input_image(init_name)
+                if init_image is None:
+                    raise ValueError(
+                        f"[Image Oasis] Img2img init image could not be "
+                        f"loaded: {init_name}. Re-upload it, or clear the "
+                        "Init slot to generate from noise.")
+                latent = stage_load.encode_init_latent(
+                    vae, init_image, width, height, batch_size, fit_method)
+            else:
+                latent = stage_load.make_latent(vae, width, height, batch_size)
             # decode_final=False: the base stage only produces a latent. The
             # decode happens in the refined stage below (whether or not a refiner
             # runs), so the no-refiner and refiner paths share one decode.

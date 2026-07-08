@@ -27,6 +27,7 @@ This is where you pick what actually generates the image.
 ### Architecture dropdown
 Tell Image Oasis what *kind* of model you loaded so sampling is configured correctly:
 - **AuraFlow** - AuraFlow flow-matching using models like Z-Image Turbo.
+- **Boogu-Image 0.1 (Base / Turbo)** - Boogu's 10B unified image model. Turbo is 3-4 step distilled (CFG 1.0, sgm_uniform); Base uses standard flow-matching (CFG ~4, 30-50 steps). Uses the Flux VAE and a Qwen3-VL-8B text encoder with its own `boogu` CLIP type - the arch default sets this for you, and picking a different CLIP type will crash the run (the model needs conditioning metadata only the boogu encoder attaches). The Edit variant is not supported.
 - **Flux.1 / Flux.2** - Black Forest Labs flow-matching.
 - **Krea 2 (Turbo / Raw)** - Krea's 12B DiT. Turbo is 8-step distilled (CFG 1.0); Raw uses standard flow-matching (more steps, positive CFG).
 - **Qwen-Image-Edit** - Alibaba's image editor. Takes reference images.
@@ -35,14 +36,14 @@ Tell Image Oasis what *kind* of model you loaded so sampling is configured corre
 
 > 💡 If you pick the wrong arch you'll get garbage or a solid gray image - the sampler is being patched for a different math regime. When in doubt, try **SD1 / SD1.5 / No Patch** first since "no patch" is always safe to fall back to.
 
-> ⚠️ **Krea 2 + Sage attention = black images.** If you're launching ComfyUI with `--use-sage-attention` and getting solid black output from Krea 2, remove the flag. Other architectures (Flux, Qwen, SD3, SDXL, etc.) are unaffected.
+> ⚠️ **Krea 2 + Sage attention = black images.** Sage attention corrupts Krea 2's math, so as of v1.4 the node refuses to run Krea 2 while ComfyUI is launched with `--use-sage-attention` - you'll get a clear error instead of a wasted run and a black square. Remove the flag and restart ComfyUI. Other architectures (Flux, Qwen, SD3, SDXL, etc.) are unaffected.
 
 ### CLIP / VAE
 If the checkpoint bundles its own CLIP and VAE, those dropdowns disappear. If not, you pick them yourself.
 
 ### CLIP slots (per architecture)
 The number of CLIP dropdowns you see depends on the selected architecture:
-- **AuraFlow, Krea 2, Qwen-Image-Edit** - one CLIP slot.
+- **AuraFlow, Boogu-Image, Krea 2, Qwen-Image-Edit** - one CLIP slot.
 - **Flux.1 / Flux.2, SD1 / SD1.5 / No Patch** - two slots (slot 2 optional). Flux uses `clip_l + t5xxl`; SDXL uses `clip_l + clip_g`; SD1.5 / Flux.2 Klein leave slot 2 empty.
 - **SD3 / SD3.5** - three slots (`clip_l + clip_g + t5xxl`). The triple-CLIP combo produces noticeably better quality than dual on SD3.5.
 
@@ -71,18 +72,33 @@ LoRAs are little add-ons that nudge the model toward a particular style, charact
 
 ## 🖼️ Reference Images
 
-For image-editing architectures like Qwen-Image-Edit. Up to **three** slots. Most edit models only use one.
+Two groups of slots, used by two different features:
+
+### Qwen Image Edit (slots 1-3)
+Feed the **Qwen-Image-Edit** architecture's edit conditioning - "take this picture and change X". Up to three slots; most edit models only use one. The **Fit Method** in the Latent section controls how these are mapped onto your output size. On any other architecture these slots dim and are ignored.
+
+### Img2Img Init (non-Qwen)
+One **Init** slot. Fill it on any *non-Qwen* architecture (Flux, SD1.5/SDXL, SD3, AuraFlow, Krea 2) and generation starts from this image instead of from pure noise. **Occupied slot = img2img on; clear the slot to return to normal generation.** There is no separate toggle.
+
+**What img2img actually is:** think image *inspiration*, not image editing. Any diffusion model can do it - the model remakes your image in its own signature style, carrying over the structure, composition, and palette. Every model's style bleeds onto the result (a Flux remake looks like Flux, a Krea remake looks like Krea), and models differ in how strongly they impose it versus preserve the original. For surgical "change only the hat" instructions, that's Qwen-Image-Edit's job.
+
+- **Strength** is the **Denoise** value in the Generation section. **Start at 0.5 and adjust from there** - the right value depends entirely on what you're asking the model to do to the image. Lower preserves more of the source; higher hands more over to the prompt and the model's own style.
+- **Sizing** is the **Fit Method** in the Latent section.
+- On the Qwen arch this slot dims and is ignored - Qwen already consumes images through the edit slots above.
 
 ### Three ways to fill a slot
 - **Click** the upload button.
-- **Drag and drop** a file onto the slot's image box - from your file manager, from the ComfyUI Asset side panel, or even from the node's own output pane.
+- **Drag and drop** a file onto the slot's image box - from your file manager, from the ComfyUI Asset side panel, or even from the node's own output pane (dragging your last output into Init is a quick way to iterate on it).
 - **Paste** - click the slot's image box, then Ctrl+V. Works with images copied straight off a website or from a screenshot tool.
 
 > 💡 The little square thumbnail is the drop & paste target - it lights up when it's ready to receive. Hover it for a reminder.
 
+### Image info line
+Occupied slots show the image's **resolution and file size** under the upload button. The **⤢** button next to it copies the image's dimensions into the Latent Width/Height (snapped to /16) - one click to make the output the same size as the source.
+
 ### Other slot controls
 - **✕** - clears the slot.
-- **◧** - uses this image as the **Compare base** in the output viewer (see Output section below). Only one ref slot can be the compare base at a time.
+- **◧** - uses this image as the **Compare base** in the output viewer (see Output section below). Works on all four slots, including Init - handy for wiping between your source and the img2img result. Only one slot can be the compare base at a time.
 
 ---
 
@@ -148,6 +164,30 @@ WizardLM-2 7B Abliterated        Q5_K_M (S)
 
 ---
 
+## 📐 Latent
+
+The canvas: what size and shape the generation starts as.
+
+### Width / Height
+Output dimensions in pixels. The ↔ button swaps them. Every image that enters generation - the img2img init or the Qwen edit references - is conformed to this size, so what these fields say is what you get.
+
+### Ratio presets
+Toggle a ratio button (1:1, 2:3, 3:4, 9:16, 16:9, 4:3, 3:2) to lock the aspect: the height snaps immediately, and from then on editing either field recalculates the other (to the nearest multiple of 16 - the safe snap for every supported architecture). Click the active button again to unlock and edit freely. The ↔ swap also flips the lock to its mirror (2:3 becomes 3:2) so the highlighted button stays honest.
+
+### Fit Method
+How incoming images are conformed to your Width x Height. On the Qwen-Image-Edit architecture this applies to the **edit reference images**; on every other architecture it applies to the **img2img Init image**. When an image path is in effect, a line under the buttons says which one - the Qwen edit references on Qwen, the img2img init otherwise.
+
+- **Stretch** - scale to exactly the target size. Ignores aspect; a mismatched image distorts.
+- **Crop** (default) - scale to fill preserving aspect, then center-crop the overflow. No distortion; the edges may be lost.
+- **Pad** - scale to fit inside preserving aspect; the leftover space is filled by repeating the image's own edges. The padded regions are invented by the model, so expect the borders to be made up.
+
+> 💡 If you want the output shaped like your source image, click the ⤢ button on the image's info line (see Reference Images) or the matching ratio preset - then every Fit Method behaves identically because nothing needs conforming.
+
+### Batch
+Generate multiple images in one run. Each gets a different starting noise pattern (seed).
+
+---
+
 ## ⚙️ Sampling
 
 The actual image-generation step.
@@ -170,13 +210,17 @@ The math used to walk through noise removal. Some common pairs:
 Results vary by model - experiment.
 
 ### Denoise
-How much noise to start from. **1.0** = fresh generation. Lower values start from a partly-denoised state (use only for image editing or refiner pass).
+How much noise to start from. **1.0** = fresh generation. Lower values keep more of the starting latent - this is the strength dial for **img2img** (Init slot occupied): start at **0.5** and adjust from there, since the right value depends entirely on what you're asking the model to do to the image. Also used internally by the refiner pass.
+
+### Variety
+Fixes the "every seed looks the same" problem on distilled models (Z-Image Turbo, Krea 2 Turbo, Boogu Turbo, and similar). On these models the prompt dominates so strongly that re-rolling the seed barely changes the composition. Variety adds a tiny, seeded amount of noise to the prompt conditioning during the early sampling steps - just enough to land each seed on a genuinely different layout - and hands back the clean prompt for the rest of the run, so adherence and fine detail are unaffected.
+
+- **0 = off** (default; exact current behavior).
+- **Start around 0.1** and adjust. Higher values diversify harder but drift further from the prompt.
+- Fully reproducible: the same seed with the same Variety value regenerates the same image.
 
 ### Shift
 A flow-matching parameter. **0 = use the architecture's recommended default** (recommended unless you know the model). Hover the field for typical ranges by architecture.
-
-### Batch
-Generate multiple images in one run. Each gets a different starting noise pattern (seed).
 
 ### Seed
 The random number that locks in the noise pattern. **Same seed + same settings = same image.**
@@ -243,6 +287,7 @@ Where generated images appear.
 ### Header buttons
 - ▶ **Generate** - runs with the current seed. Useful when adding a refiner/upscale pass to the last generated image.
 - 🎲 **Randomize & Generate** - picks a new seed and generates a new image.
+- ⏹ **Interrupt** - stops the current run. Only appears while a generation is in progress.
 - ◧ **Compare** - toggles the A/B slider (see below).
 - 💾 **Save** - copies to your ComfyUI output folder.
 

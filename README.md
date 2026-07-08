@@ -8,9 +8,9 @@ finished image - with an optional prompt enhancer, refiner pass, and upscale.
 
 * **Tri-source model loading**: checkpoint / diffusion (unet) / GGUF
 * **Architecture switching** via a dropdown (a capability *registry* replaces
-every "Switch (Any)" node): AuraFlow, Flux.1 / Flux.2, Krea 2 (Turbo / Raw),
-Qwen-Image-Edit, SD1 / SD1.5 / No Patch (the SDXL/SD1.x escape hatch),
-SD3 / SD3.5
+every "Switch (Any)" node): AuraFlow, Boogu-Image 0.1 (Base / Turbo),
+Flux.1 / Flux.2, Krea 2 (Turbo / Raw), Qwen-Image-Edit,
+SD1 / SD1.5 / No Patch (the SDXL/SD1.x escape hatch), SD3 / SD3.5
 * **Architecture-correct model-sampling patch** (ModelSamplingFlux /
 DiscreteFlow with the right multiplier), with arch-default shift values
 * **Per-architecture CLIP slots** - single, dual, or triple, automatically
@@ -24,25 +24,65 @@ drag the 9-dot grip to reorder
 * **Conditioning** that branches automatically: plain CLIP text encode, or
 TextEncodeQwenImageEditPlus with up to 3 reference images (upload *or*
 drag-and-drop) when the architecture supports it
-* **VAE-derived empty latent** (correct channel count / compression per model)
+* **VAE-derived latent** (correct channel count / compression per model), with
+aspect-ratio presets (1:1, 2:3, 3:4, 9:16, 16:9, 4:3, 3:2), ratio-locked
+width/height editing, a swap button, and a Fit Method (Stretch / Crop / Pad)
+that controls how incoming images - the img2img init or the Qwen edit
+references - are conformed to the output size
+* **Img2img on every non-Qwen architecture**: drop an image into the Init slot
+and generation starts from it instead of noise - the model remakes your image
+in its own style, carrying structure, composition, and palette. Denoise is
+the strength dial (start ~0.5). Occupied slot = enabled; clear it to return
+to txt2img
+* **Ref image info**: every occupied reference/init slot shows the image's
+resolution and file size, with a one-click button that sets the latent
+width/height to match the source
 * **Refiner pass (img2img-style)**: optional second sampling pass over the base
 result. The base runs to full denoise, then the refiner re-noises to
 `refiner\_denoise` strength and runs its own steps - the "second KSampler at
 partial denoise" pattern, independent of the base schedule
 * **Optional upscale**: algorithmic or spandrel model upscale with OOM-fallback
 tiling
+* **Low-VRAM resilience**: VAE decode falls back to tiled decoding on
+out-of-memory instead of failing after a completed sampling run, and known
+architecture-breaking startup flags (Krea 2 + `--use-sage-attention`) are
+refused up front with a clear error instead of producing silent black images
+* **Krea 2 conditioning rebalance, built in**: Krea 2's 12-layer text
+conditioning under-weights the deep layers that carry fine detail and
+identity; the node automatically reweights them (RMS-renormalized so overall
+strength is unchanged) as part of the architecture's encode path. No control
+to set - it just generates better. Note this means Krea 2 seeds from v1.3
+render slightly differently in v1.4
+* **Variety control** for the "every seed looks the same" problem on
+distilled models: a single dial that adds tiny seeded noise to the prompt
+conditioning during the early sampling steps, so re-rolling the seed
+produces genuinely different compositions while prompt adherence and detail
+stay faithful. 0 = off, fully seed-reproducible
 * **Prompt enhancer ("magic wand")**: expand a short prompt into a detailed one
 with a local LLM - see below
 * **Presets**: save, reload, and drag-to-reorder named configurations
 * **On-node output**: the generated image renders in the node's right-hand pane,
-with a save-to-output button, randomize-seed-and-generate dice, an A/B
-**compare slider** (current vs. previous, or current vs. a selected
-reference image), and left/right arrows for navigating batches - all
-available without keeping the Generation group open
+with a save-to-output button, randomize-seed-and-generate dice, an interrupt
+button while a run is live, an A/B **compare slider** (current vs. previous,
+or current vs. any reference/init slot), and left/right arrows for navigating
+batches - all available without keeping the Generation group open
 * **Custom theme** (six CSS variables, named theme presets, live propagation
 across every Image Oasis node in the workflow)
 * **In-node help panel** that renders `help\_content.md` inline, so the
 reference text lives next to the controls it describes
+
+## What it deliberately does not do
+
+Image Oasis is self-contained by design, and some things stay out of it on
+purpose rather than by omission:
+
+* **Masking and inpainting** - out of scope for this node. Region-targeted
+work belongs in a dedicated workflow; for prompt-driven edits, use the
+Qwen-Image-Edit architecture's reference slots instead.
+* **ControlNet** - lives in **Control Architect**, the suite's dedicated
+node, and is not planned here.
+* **A companion node** - not planned. Everything the node needs rides inside
+it; feeding an output back in is a drag onto the Img2Img Init slot.
 
 ## What's new in v1.2
 
@@ -322,5 +362,9 @@ arch never accidentally triggers a triple-CLIP load with stale state.
 
 * Execution timer (Orbitron readout + queue-event pattern) adapted from
 crt-nodes.
+* Krea 2 conditioning rebalance technique by nova452
+(ComfyUI-ConditioningKrea2Rebalance) with quality-preserving RMS
+renormalization from huwhitememes (comfyui-krea2-conditioning), both
+Apache-2.0.
 * "Accessibility tool for the nodally challenged" - PheebyKatz.
 

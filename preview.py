@@ -54,8 +54,19 @@ def save_preview(images, prompt=None, extra_pnginfo=None):
     )
 
     results = []
+    nan_warned = False
     for batch_idx, image in enumerate(images):
         arr = image.cpu().numpy()
+        # Surface corruption BEFORE clamping it away. nan_to_num below keeps
+        # the preview from crashing, but silently masking NaN/Inf hid a real
+        # bug for a long time (sage-attention producing NaN latents on Krea 2
+        # showed up only as a black image). Warn once per batch.
+        if not nan_warned and not np.isfinite(arr).all():
+            nan_warned = True
+            print("[Image Oasis] WARNING: NaN/Inf values in decoded image — "
+                  "the latents were corrupted upstream (check for an "
+                  "incompatible attention backend, e.g. --use-sage-attention). "
+                  "Values clamped for preview; the image is not trustworthy.")
         arr = np.nan_to_num(arr, nan=0.0, posinf=1.0, neginf=0.0)
         img = Image.fromarray(np.clip(arr * 255.0, 0, 255).astype(np.uint8))
 

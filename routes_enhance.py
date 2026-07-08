@@ -26,6 +26,7 @@ import gc
 import json
 import struct
 import random
+import threading
 
 import folder_paths
 from server import PromptServer
@@ -214,9 +215,13 @@ def _recommend_gpu_layers(model_path, reserve_factor=0.95):
     field is -1 when the whole model fits (llama.cpp's convention for "all"),
     0 when CUDA is unavailable or layer count can't be read.
 
-    Triggers a targeted free first so the VRAM reading reflects what will
-    actually be available at load time — consistent with how the existing
-    enhance flow already evicts the diffusion model on every call.
+    Pure read: GGUF header + free VRAM as-is, NO eviction side effect. The
+    old behavior (targeted free before measuring) meant every recommendation
+    fetch — including the passive one on node add / tab switch — evicted the
+    diffusion model from VRAM and forced a full reload on the next generation.
+    Eviction now happens exactly once, inside the enhance route, when the user
+    actually clicks Enhance. Auto mode re-runs this math there, post-eviction,
+    so the layers actually loaded reflect the real free room.
     """
     try:
         file_size = os.path.getsize(model_path)
@@ -225,12 +230,6 @@ def _recommend_gpu_layers(model_path, reserve_factor=0.95):
 
     meta = _read_gguf_meta(model_path)
     n_layers = meta.get("block_count") or 0
-
-    # Evict tracked Comfy models (e.g. diffusion + TE) to free room. We don't
-    # know the exact LLM footprint yet, so ask for roughly the file size on the
-    # device. comfy.free_memory evicts whole models until the target is met or
-    # there's nothing left to evict.
-    _targeted_vram_free(int(file_size * 1.5))
 
     free = _free_vram_bytes()
     if free is None:
@@ -382,9 +381,19 @@ _DEFAULT_MAX_TOKENS = 2048
 
 # Per-instance model cache so repeated clicks with the same model reuse it.
 # Cache key includes path + n_gpu_layers + n_ctx — any of those changing forces
-# a reload. The LLM stays loaded between clicks; it's only unloaded by
+# a reload. (Auto-layers mode relaxes the n_gpu_layers match: if the same
+# model+ctx is already loaded, it already fits, so reuse it rather than
+# reloading because the free-VRAM math produced a slightly different split.)
+# The LLM stays loaded between clicks; it's only unloaded by
 # unload_enhancer() (called from nodes.py at the start of image generation).
 _STATE = {"model": None, "path": None, "n_gpu_layers": None, "n_ctx": None}
+
+# Serializes enhance work. The wand button guards per-node (wandBusy), but two
+# open nodes clicking simultaneously would race the load/unload path — a
+# double LLM load is an OOM on 8GB cards. unload_enhancer() also takes this
+# lock so image generation can't rip the model out from under a mid-flight
+# enhance.
+_ENHANCE_LOCK = threading.Lock()
 
 
 def _unload():
@@ -407,9 +416,12 @@ def _unload():
 def unload_enhancer():
     """Public entry: free the cached LLM if one is loaded. Called from nodes.py
     at the top of image generation so the LLM never competes with the diffusion
-    model for VRAM. No-op when no LLM is loaded."""
-    if _STATE["model"] is not None:
-        _unload()
+    model for VRAM. No-op when no LLM is loaded. Takes the enhance lock so a
+    generation that starts during an in-flight enhance waits for it to finish
+    instead of unloading the model mid-inference."""
+    with _ENHANCE_LOCK:
+        if _STATE["model"] is not None:
+            _unload()
 
 
 def _load_llama(model_path, n_gpu_layers, n_ctx):
@@ -468,10 +480,12 @@ def _resolve_model_path(model_name):
 @routes.get("/image_oasis/llm_recommended_layers")
 async def image_oasis_llm_recommended(request):
     """Return a GPU-layer recommendation for the requested model based on
-    current free VRAM. Triggers a targeted eviction of tracked Comfy models
-    (e.g. diffusion + TE) so the reading reflects what will be available at
-    enhance time. Computation runs in a thread because reading the GGUF header
-    + the VRAM-free call shouldn't block the event loop."""
+    current free VRAM. Pure read — no eviction — so passive fetches (model
+    dropdown change, settings panel open) can't disturb loaded diffusion
+    models. The number is conservative while a diffusion model occupies VRAM;
+    the enhance route recomputes post-eviction and reports what it actually
+    used. Runs in a thread because the GGUF header read shouldn't block the
+    event loop."""
     model_name = (request.query.get("model") or "").strip()
     model_path, err = _resolve_model_path(model_name)
     if err:
@@ -493,6 +507,20 @@ async def image_oasis_enhance(request):
     prompt = (data.get("prompt") or "").strip()
     style = (data.get("style") or "natural").lower()
     model_name = (data.get("model") or "").strip()
+    auto_layers = bool(data.get("auto_layers", False))
+
+    # Refuse while an image is generating. Loading the LLM mid-run would fight
+    # the diffusion model for VRAM (the eviction below would rip it out of
+    # memory mid-sampling). The JS disables the wand during a run too, but the
+    # server-side check is the authoritative one.
+    try:
+        running, _pending = PromptServer.instance.prompt_queue.get_current_queue()
+        if running:
+            return web.json_response(
+                {"error": "Enhance is unavailable while an image is generating. "
+                          "Wait for the run to finish and try again."}, status=409)
+    except Exception:
+        pass  # queue introspection failed — don't block the feature over it
 
     # Settings from the panel; defaults match the UI defaults so missing values
     # behave the same as a fresh load.
@@ -541,25 +569,38 @@ async def image_oasis_enhance(request):
     def work():
         # Cache check FIRST. If the same model is already loaded with the same
         # layers + ctx, reuse — measuring VRAM with the LLM loaded would mis-size
-        # any reload and partial-offload-tax every subsequent click.
-        actual_layers = n_gpu_layers
+        # any reload and partial-offload-tax every subsequent click. In auto
+        # mode the layer count is not part of the match: a loaded model already
+        # fits, and re-running the free-VRAM math with it resident would only
+        # produce a worse split.
+        layers_match = auto_layers or _STATE["n_gpu_layers"] == n_gpu_layers
         if (_STATE["model"] is not None
                 and _STATE["path"] == model_path
-                and _STATE["n_gpu_layers"] == n_gpu_layers
+                and layers_match
                 and _STATE["n_ctx"] == n_ctx):
             llm = _STATE["model"]
             actual_layers = _STATE["n_gpu_layers"]
         else:
-            # Fresh load. Evict tracked Comfy models first to make room (the
-            # diffusion model would otherwise still be sitting in VRAM).
+            # Fresh load. This is the ONE place the targeted eviction happens:
+            # the user clicked Enhance, so displacing the diffusion model from
+            # VRAM is now the point, not a side effect.
             try:
                 file_size = os.path.getsize(model_path)
                 _targeted_vram_free(int(file_size * 1.5))
             except Exception:
                 pass
             _unload()
+            # Auto mode sizes the GPU split AFTER the eviction, against the
+            # real free VRAM. The UI's pre-eviction recommendation is
+            # conservative by design; this is the accurate number.
+            if auto_layers:
+                rec = _recommend_gpu_layers(model_path)
+                load_layers = rec.get("layers", -1)
+            else:
+                load_layers = n_gpu_layers
+            actual_layers = load_layers
             try:
-                llm = _load_llama(model_path, n_gpu_layers, n_ctx)
+                llm = _load_llama(model_path, load_layers, n_ctx)
             except Exception as e:
                 # Most likely OOM from an over-aggressive manual setting.
                 # Retry on CPU so the wand never hard-crashes.
@@ -588,12 +629,18 @@ async def image_oasis_enhance(request):
         enhanced = _clean(raw, model_basename)
         return enhanced, actual_layers
 
+    def locked_work():
+        # Two nodes clicking Enhance at once must not race the load/unload
+        # path (double LLM load = OOM). Second click waits its turn.
+        with _ENHANCE_LOCK:
+            return work()
+
     try:
         import asyncio
         loop = asyncio.get_running_loop()
-        enhanced, actual_layers = await loop.run_in_executor(None, work)
+        enhanced, actual_layers = await loop.run_in_executor(None, locked_work)
     except Exception as e:
-        _unload()
+        unload_enhancer()
         return web.json_response({"error": f"Enhancement failed: {e}"}, status=500)
 
     if not enhanced:

@@ -21,6 +21,20 @@ A "pass" is a dict:
 import torch
 import traceback
 
+import comfy.model_management as model_management
+
+
+def _decode_oom_fallback(vae, samples):
+    """vae.decode with a tiled retry on OOM. Decode OOM after a successful
+    sampling run is the most painful place to die — the sampling work is
+    already done. Mirrors stock VAEDecode's fallback behavior. Non-OOM
+    exceptions propagate unchanged."""
+    try:
+        return vae.decode(samples)
+    except model_management.OOM_EXCEPTION:
+        print("[Image Oasis] VAE decode ran out of memory — retrying with tiled decode.")
+        return vae.decode_tiled(samples)
+
 
 def _vae_decode_safe(vae, samples):
     """Decode 4D or 5D latents. 5D spatiotemporal VAEs decode whole; image VAEs
@@ -30,16 +44,16 @@ def _vae_decode_safe(vae, samples):
     if samples is None:
         return None
     if samples.ndim != 5:
-        return vae.decode(samples)
+        return _decode_oom_fallback(vae, samples)
 
     _b, _c, t, _lh, _lw = samples.shape
     latent_dim = int(getattr(vae, "latent_dim", 2) or 2)
     if latent_dim >= 3:
-        return vae.decode(samples)
+        return _decode_oom_fallback(vae, samples)
 
     outs = []
     for t0 in range(t):
-        decoded = vae.decode(samples[:, :, t0, :, :])
+        decoded = _decode_oom_fallback(vae, samples[:, :, t0, :, :])
         if decoded is not None:
             outs.append(decoded)
     if not outs:

@@ -74,6 +74,10 @@ const CSS = `
 /* Save matches R&G's slate-blue defaults (item 13). */
 .io-icon-btn.io-save{background:var(--io-accent-dim);border-color:var(--io-accent);color:#fff;}
 .io-icon-btn.io-save:hover{background:var(--io-accent);border-color:var(--io-accent);color:#fff;}
+/* Interrupt (item C): red-tinted so it reads as "stop" against the green
+   Generate and slate R&G. Only visible while the timer is running. */
+.io-icon-btn.io-stop{background:#5a3a3a;border-color:#7a4f4f;color:#fff;}
+.io-icon-btn.io-stop:hover{background:#7a4f4f;border-color:#8f5c5c;color:#fff;}
 /* Seed-row buttons (next to the seed input): identical squares with centered
    glyphs, sized to match the seed input's rendered height. font-size + padding
    matched to .io-input so the box reads as the same row. */
@@ -86,7 +90,10 @@ const CSS = `
 .io-chk-box{width:14px;height:14px;border:1px solid var(--io-bd);border-radius:3px;background:#191919;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;flex-shrink:0;}
 .io-chk-box.on{background:var(--io-accent-dim);border-color:var(--io-accent);}
 .io-half{display:flex;gap:8px;}
-.io-half>div{flex:1;display:flex;flex-direction:column;gap:3px;}
+/* min-width:0 lets columns holding <select>s shrink below their options'
+   intrinsic width — without it a long sampler name forces its column wider
+   than 50% while number-input columns (Steps/CFG) split evenly. */
+.io-half>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;}
 .io-mini{font-size:9px;color:var(--io-dim);font-family:var(--io-mono);letter-spacing:.04em;}
 .io-badge{font-size:8px;background:#5a5a5a;color:#eee;border-radius:3px;padding:1px 4px;font-family:var(--io-mono);font-weight:700;margin-left:5px;}
 .io-body{display:flex;gap:9px;flex:1;min-height:0;overflow:hidden;}
@@ -144,6 +151,18 @@ const CSS = `
 .io-help-body blockquote p{margin:.25em 0;}
 .io-info-label{font-weight:700;color:var(--io-accent);}
 .io-refslot{display:flex;align-items:center;gap:8px;}
+/* Middle column of a ref slot: upload button stacked over the res/size info
+   line, centered against the square thumbnail so both rows line up with the
+   dashed placeholder. */
+.io-ref-mid{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:2px;}
+.io-ref-mid .io-ref-btn{width:100%;flex:0 0 auto;}
+.io-ref-info{font-size:10px;opacity:.75;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;min-height:14px;padding-left:2px;}
+.io-ref-size-btn{background:none;border:1px solid var(--io-border);border-radius:3px;color:inherit;font-size:10px;line-height:1;padding:1px 4px;cursor:pointer;}
+.io-ref-size-btn:hover{background:var(--io-accent);border-color:var(--io-accent);color:#fff;}
+/* Arch-inactive ref slot (Qwen slots on non-Qwen arch, Init slot on Qwen).
+   Still editable — state persists across arch switches like CLIP slots —
+   just visibly inert, matching the ignored-negative-prompt treatment. */
+.io-refslot.io-refslot-dim{opacity:.45;}
 .io-ref-thumb{width:44px;height:44px;border-radius:4px;border:1px solid var(--io-bd);object-fit:cover;background:#191919;flex-shrink:0;}
 .io-ref-thumb-empty{width:44px;height:44px;border-radius:4px;border:1px dashed var(--io-bd);background:#191919;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--io-dim);font-size:9px;font-family:var(--io-mono);}
 .io-ref-btn{flex:1;background:#191919;border:1px solid var(--io-bd);border-radius:4px;color:var(--io-dim);font-family:var(--io-mono);font-size:10px;padding:5px 6px;cursor:pointer;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -289,7 +308,11 @@ function mdToHtml(md){
     s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
     s = s.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
     s = s.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
-    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // Only http(s) hrefs become links; anything else (javascript:, data:,
+    // relative junk) renders as plain text. help_content.md is repo-controlled
+    // so this is defense in depth, not a live threat.
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, txt, href) =>
+      /^https?:\/\//i.test(href) ? `<a href="${href}" target="_blank" rel="noopener">${txt}</a>` : txt);
     return s;
   };
   const lines = md.replace(/\r\n/g,"\n").split("\n");
@@ -368,11 +391,17 @@ function applyTheme(){
   el.textContent = out ? `:root{${out}}` : "";
 }
 
-// Fetch the saved theme once (called on each node's onAdded; cheap + idempotent).
+// Fetch the saved theme once per page load. Called on each node's onAdded,
+// but only the FIRST call hits the backend: re-reading disk on every node add
+// would clobber unsaved live edits (mid-tweak on node A, drop in node B →
+// colors snap back). On failure the flag stays false so the next add retries.
+let IO_THEME_LOADED = false;
 async function loadTheme(){
+  if(IO_THEME_LOADED){ applyTheme(); return; }
   try{
     const saved = await (await fetch("/image_oasis/theme")).json();
     IO_THEME = {...IO_THEME_DEFAULTS, ...(saved||{})};
+    IO_THEME_LOADED = true;
   }catch(e){ console.warn("[Image Oasis] theme load",e); IO_THEME={...IO_THEME_DEFAULTS}; }
   applyTheme();
   IO_THEME_LISTENERS.forEach(fn=>{ try{fn();}catch{} });
@@ -463,16 +492,39 @@ async function applyNamedTheme(id){
 const esc = (s) => String(s ?? "")
   .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
-const ARCHS = ["auraflow","flux","krea2","qwen_image_edit","other","sd3"];
-const ARCH_LABELS = {auraflow:"AuraFlow",flux:"Flux.1 / Flux.2",krea2:"Krea 2 (Turbo / Raw)",other:"SD1 / SD1.5 / No Patch",sd3:"SD3 / SD3.5",qwen_image_edit:"Qwen-Image-Edit"};
-// How many CLIP slots each arch exposes in the UI (mirrors clip_slots in
-// registry.py). State preserves all three values regardless; nodes.py trims
-// at runtime so a 1-slot arch never loads with stale slot-2/3 values.
-const CLIP_SLOTS = {auraflow:1, flux:2, krea2:1, qwen_image_edit:1, other:2, sd3:3};
+// ── Architecture definitions ──
+// Served by the backend from registry.py via /image_oasis/models (see
+// applyArchs) so adding an arch is a registry-only change. The values below
+// are FALLBACKS, used only until the first models fetch succeeds (and kept if
+// it never does). If an arch looks missing or mislabeled, the registry is the
+// source of truth — not this block.
+let ARCHS = ["auraflow","flux","krea2","qwen_image_edit","other","sd3"];
+// Arches whose reference-image path is the Qwen edit conditioning (mirrors
+// accepts_image_cond in registry.py). Slots 1-3 are live ONLY on these; the
+// img2img Init slot is live only on everything else.
+let IMAGE_COND_ARCHS = new Set(["qwen_image_edit"]);
+// ── Latent section: aspect-ratio presets (w:h) and init-image fit modes ──
+const RATIOS = ["1:1","2:3","3:4","9:16","16:9","4:3","3:2"];
+// ↔ swap in ratio mode flips values AND activates the mirrored ratio so the
+// highlighted button stays truthful (2:3 becomes 3:2, etc.; 1:1 is its own).
+const RATIO_MIRROR = {"1:1":"1:1","2:3":"3:2","3:2":"2:3","3:4":"4:3","4:3":"3:4","9:16":"16:9","16:9":"9:16"};
+const FIT_METHODS = ["stretch","crop","pad"];
+const FIT_TIPS = {
+  stretch:"Scale to exactly Width x Height. Ignores aspect ratio - a mismatched image distorts.",
+  crop:"Scale to fill Width x Height preserving aspect, then center-crop the overflow. No distortion; edges may be lost.",
+  pad:"Scale to fit inside Width x Height preserving aspect; leftover space is edge-padded. Padded regions are model-invented.",
+};
+let ARCH_LABELS = {auraflow:"AuraFlow",flux:"Flux.1 / Flux.2",krea2:"Krea 2 (Turbo / Raw)",other:"SD1 / SD1.5 / No Patch",sd3:"SD3 / SD3.5",qwen_image_edit:"Qwen-Image-Edit"};
+// How many CLIP slots each arch exposes in the UI. Registry-fed like ARCHS
+// above (fallback values here); nodes.py trims at runtime so a 1-slot arch
+// never loads with stale slot-2/3 values.
+let CLIP_SLOTS = {auraflow:1, flux:2, krea2:1, qwen_image_edit:1, other:2, sd3:3};
 const SOURCES = ["checkpoint","diffusion","gguf"];
 const SOURCE_LABELS = {checkpoint:"Checkpoint", diffusion:"Diffusion", gguf:"GGUF"};
 const WEIGHT_DTYPES = ["default","fp8_e4m3fn","fp8_e4m3fn_fast","fp8_e5m2"];
-const CLIP_TYPES = ["","stable_diffusion","sd3","flux","qwen_image","lumina2","hidream","chroma","flux2","krea2"];
+// Registry-fed like the arch structures above (see applyArchs) — fallback
+// values only. Add new CLIP types in registry.py's CLIP_TYPE_CHOICES.
+let CLIP_TYPES = ["","stable_diffusion","sd3","flux","qwen_image","lumina2","hidream","chroma","flux2","krea2"];
 const UPSCALE_MODES = ["algorithmic","model"];
 const UPSCALE_METHODS = ["lanczos","bicubic","bilinear","nearest-exact","area"];
 const MAX_SEED = 1125899906842624;  // 2^50, matches ComfyUI's seed range
@@ -514,12 +566,30 @@ app.registerExtension({
       const selfNode = this;
       const container = document.createElement("div");
       container.className = "io-widget";
+      // Delegated handler for the ⤢ use-this-size button on ref info lines.
+      // Attached ONCE here — info divs get swapped in asynchronously after
+      // fetches and would slip through the per-render bind() pass, and a
+      // container-level listener survives every innerHTML render without
+      // stacking. Copies the image's dimensions into the latent (snapped to
+      // /16) and clears the ratio lock, which would otherwise immediately
+      // recalculate one of the fields.
+      container.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-use-size]");
+        if(!b || !container.contains(b)) return;
+        e.stopPropagation();
+        const [w, h] = b.dataset.useSize.split("x").map(Number);
+        if(!w || !h) return;
+        st.width = snap16(w); st.height = snap16(h);
+        st.aspect_lock = "";
+        save(); render();
+      });
 
       let st = {
         architecture:"flux", source_type:"diffusion", model_file:"",
         user_prompt:"", positive:"", negative:"",
         width:1024, height:1024, batch_size:1, seed:0,
         steps:20, cfg:3.5, sampler_name:"euler", scheduler:"simple", denoise:1.0,
+        variety:0,
         seed_control:"randomize",
         clip_file:"", clip_file_2:"", clip_file_3:"", vae_file:"", clip_bundled:false, vae_bundled:false,
         weight_dtype:"default", clip_type:"", shift:0.0,
@@ -529,8 +599,10 @@ app.registerExtension({
         enable_upscale:false, upscale_mode:"algorithmic",
         upscale_method:"lanczos", upscale_multiplier:2.0, upscale_model_file:"",
         ref_image1:"", ref_image2:"", ref_image3:"",
+        init_image:"", fit_method:"crop",
+        aspect_lock:"",
       };
-      let open = { presets:false, model:false, loras:false, refs:false, prompt:false, sampling:false, refiner:false, upscale:false, theme:false, help:false };
+      let open = { presets:false, model:false, loras:false, refs:false, prompt:false, latent:false, sampling:false, refiner:false, upscale:false, theme:false, help:false };
       let taHeights = { user_prompt:72, positive:72, negative:72 };  // px, drag-handle controlled
       let presets = [];
       let presetName = "";
@@ -550,7 +622,7 @@ app.registerExtension({
       let previousImages = [];       // URLs of the prior batch (snapshotted in onExecuted)
       let previousInfo = [];         // matching info objects, persisted via getValue/setValue
       let cmpPercent = 50;           // slider position 0..100 (% from the left)
-      let cmpRefIdx = null;          // which ref slot (0|1|2) overrides "previous" as source; null = use previous
+      let cmpRefIdx = null;          // which slot overrides "previous" as source: 0|1|2 = ref slots, 3 = init slot; null = use previous
       let cmpDragging = false;       // closure-only; not persisted
       let cmpActiveContainer = null; // the .io-cmp-item whose handle the user grabbed (anchor for x→pct math)
       let allModels = {checkpoints:[],diffusion:[],gguf_unet:[],clip_std:[],clip_gguf:[],vaes:[],upscale_models:[],loras:[]};
@@ -607,7 +679,7 @@ app.registerExtension({
 
       const num = (field,label,step,min,max,tip) => `
         <div${tip?` title="${tip}"`:""}><span class="io-mini">${label}</span>
-        <input class="io-input" type="number" data-f="${field}" value="${esc(st[field])}" step="${step}" ${min!=null?`min="${min}"`:""} ${max!=null?`max="${max}"`:""}${tip?` title="${tip}"`:""}/></div>`;
+        <input class="io-input" type="number" data-f="${field}" value="${esc(st[field])}" step="${step}" ${min!=null?`min="${min}"`:""} ${max!=null?`max="${max}"`:""}/></div>`;
 
       const modelSection = () => {
         const isCkpt = st.source_type==="checkpoint";
@@ -684,30 +756,92 @@ app.registerExtension({
           <button class="io-btn" data-lora-add style="margin-top:4px">+ Add LoRA</button>`);
       };
 
+      // Map a slot id (1|2|3|"init") to its state key. Slots 1-3 feed the
+      // Qwen edit conditioning; "init" feeds the img2img starting latent.
+      const refKey = (id) => id === "init" ? "init_image" : ("ref_image" + id);
+
+      // ── Ref image info (resolution + file size) ──
+      // Fetched from /image_oasis/input_info per filename, cached for the
+      // node's lifetime (input files are immutable — a re-upload of the same
+      // name gets a new suffixed filename from ComfyUI, so stale entries
+      // can't happen). Fetch completion does a targeted swap of the info div
+      // rather than a full render, so it can never clobber mid-typing state.
+      const refInfoCache = {};   // filename -> {width,height,size} | "pending" | "err"
+      const fmtBytes = (b) => b >= 1048576 ? (b/1048576).toFixed(1)+" MB" : b >= 1024 ? Math.round(b/1024)+" KB" : b+" B";
+      const refInfoHtml = (fn) => {
+        const d = refInfoCache[fn];
+        const body = (d && d !== "pending" && d !== "err")
+          ? `${d.width} x ${d.height} \u00b7 ${fmtBytes(d.size)}
+             <button class="io-ref-size-btn" data-use-size="${d.width}x${d.height}" title="Set latent Width/Height to this image's size (snapped to /16)">\u2922</button>`
+          : "";
+        return `<div class="io-ref-info" data-ref-info="${esc(fn)}">${body}</div>`;
+      };
+      const fetchRefInfo = (fn) => {
+        if(!fn || refInfoCache[fn]) return;
+        refInfoCache[fn] = "pending";
+        (async()=>{
+          try{
+            const r = await fetch(`/image_oasis/input_info?filename=${encodeURIComponent(fn)}`);
+            const d = await r.json();
+            refInfoCache[fn] = (r.ok && d.width) ? d : "err";
+          }catch{ refInfoCache[fn] = "err"; }
+          container.querySelectorAll("[data-ref-info]").forEach(el=>{
+            if(el.dataset.refInfo !== fn) return;
+            const tmp = document.createElement("div");
+            tmp.innerHTML = refInfoHtml(fn);
+            el.replaceWith(tmp.firstElementChild);
+          });
+        })();
+      };
+
       const refsSection = () => {
-        const slot = (n) => {
-          const fn = st["ref_image"+n];
+        // Arch gating (backend mirrors this): slots 1-3 live only on image-
+        // cond arches (Qwen); the Init slot lives only on everything else.
+        // Inactive slots stay editable (state persists across arch switches,
+        // same philosophy as CLIP slots) but dim with an "Ignored" note.
+        const isQwen = IMAGE_COND_ARCHS.has(st.architecture);
+        const slot = (id, cmpIdx, dim) => {
+          const fn = st[refKey(id)];
           // The thumb is the drop/paste target (data-ref-thumb + tabindex),
           // deliberately NOT the whole row — see the CSS comment.
           const tt = `title="Drop an image here, or click and paste (Ctrl+V)"`;
+          const emptyLabel = id === "init" ? "Init" : id;
           const thumb = fn
-            ? `<img class="io-ref-thumb" data-ref-thumb="${n}" tabindex="0" ${tt} src="${esc(imgURL({filename:fn,subfolder:"",type:"input"}))}"/>`
-            : `<div class="io-ref-thumb-empty" data-ref-thumb="${n}" tabindex="0" ${tt}>${n}</div>`;
+            ? `<img class="io-ref-thumb" data-ref-thumb="${id}" tabindex="0" ${tt} src="${esc(imgURL({filename:fn,subfolder:"",type:"input"}))}"/>`
+            : `<div class="io-ref-thumb-empty" data-ref-thumb="${id}" tabindex="0" ${tt}>${emptyLabel}</div>`;
           // Compare-source toggle (item 6): only meaningful when the slot has an
           // image. Independent of the header Compare button — toggling a ref as
-          // source doesn't auto-activate the slider, and vice versa.
+          // source doesn't auto-activate the slider, and vice versa. The Init
+          // slot participates as compare index 3.
           const cmpTog = fn
-            ? `<button class="io-icon-btn io-compare io-sm${cmpRefIdx===n-1?" active":""}" data-cmp-ref-tog="${n-1}" title="Use as compare base">\u25e7</button>`
+            ? `<button class="io-icon-btn io-compare io-sm${cmpRefIdx===cmpIdx?" active":""}" data-cmp-ref-tog="${cmpIdx}" title="Use as compare base">\u25e7</button>`
             : "";
-          return `<div class="io-refslot">
+          const uploadLabel = fn ? esc(fn)
+            : (id === "init" ? "Upload init image\u2026" : "Upload reference "+id+"\u2026");
+          // Middle column: upload button on top, res/size line below, the
+          // stack centered against the square thumbnail. Empty slots have no
+          // info line so the button centers alone. Occupied slots kick off
+          // the (cached) info fetch as a render side effect.
+          if(fn) fetchRefInfo(fn);
+          return `<div class="io-refslot${dim?" io-refslot-dim":""}">
             ${thumb}
-            <button class="io-ref-btn" data-ref-upload="${n}">${fn?esc(fn):"Upload reference "+n+"\u2026"}</button>
+            <div class="io-ref-mid">
+              <button class="io-ref-btn" data-ref-upload="${id}">${uploadLabel}</button>
+              ${fn?refInfoHtml(fn):""}
+            </div>
             ${cmpTog}
-            ${fn?`<button class="io-ref-clear" data-ref-clear="${n}">\u2715</button>`:""}
+            ${fn?`<button class="io-ref-clear" data-ref-clear="${id}">\u2715</button>`:""}
           </div>`;
         };
-        return sec("refs","Reference Images", `${slot(1)}${slot(2)}${slot(3)}
-          <div class="io-mini" style="opacity:.7">Used by image-edit architectures (e.g. Qwen-Image-Edit).</div>
+        return sec("refs","Reference Images", `
+          <div class="io-mini" style="margin-bottom:2px">Qwen Image Edit</div>
+          ${slot(1,0,!isQwen)}${slot(2,1,!isQwen)}${slot(3,2,!isQwen)}
+          ${!isQwen?`<div class="io-mini" style="opacity:.6">Ignored \u2014 only the Qwen-Image-Edit architecture uses these slots.</div>`:""}
+          <div class="io-mini" style="margin:6px 0 2px 0">Img2Img Init (non-Qwen)</div>
+          ${slot("init",3,isQwen)}
+          ${isQwen
+            ? `<div class="io-mini" style="opacity:.6">Ignored \u2014 Qwen-Image-Edit uses the edit slots above.</div>`
+            : `<div class="io-mini" style="opacity:.7">An occupied Init slot enables img2img: generation starts from this image instead of noise. Denoise (Generation) controls strength, start around 0.5; Fit Method (Latent) controls sizing. Clear the slot to return to normal generation.</div>`}
         `);
       };
 
@@ -729,6 +863,11 @@ app.registerExtension({
           : `<option value="">\u2014 no models in models/LLM \u2014</option>`;
         const styleTog = ["natural","tags"].map(s=>
           `<button class="io-tog${llmStyle===s?" active":""}" data-llm-style="${s}">${s==="natural"?"Natural<br/>Language":"Tags"}</button>`).join("");
+        // Disabled while an enhance is in flight OR an image is generating
+        // (the enhance would evict the diffusion model mid-run; backend
+        // returns 409 for the same reason). Timer start/stop also toggles
+        // this directly via syncWandDisabled — no full render mid-run.
+        const wandDisabled = wandBusy || timerRunning;
         const enhanceLabel = wandBusy ? "\u2026" : "\u2728 Enhance";
         return `
           <div class="io-row">
@@ -737,7 +876,7 @@ app.registerExtension({
           </div>
           <div class="io-row" style="align-items:stretch">
             <div class="io-toggle-grp" style="flex:0 0 130px">${styleTog}</div>
-            <button class="io-btn" data-wand-go style="margin-top:0;flex:1" ${wandBusy?"disabled":""}>${enhanceLabel}</button>
+            <button class="io-btn" data-wand-go style="margin-top:0;flex:1" ${wandDisabled?"disabled":""} title="${timerRunning?"Unavailable while an image is generating":""}">${enhanceLabel}</button>
           </div>`;
       };
       const promptSection = () => {
@@ -816,8 +955,55 @@ app.registerExtension({
           </div>
         </div>`;
       };
+      // ── Latent section: canvas geometry + img2img init sizing ──
+      // Ratio lock behavior: activating a ratio immediately snaps height from
+      // the current width; while active, editing either field recalcs the
+      // other to the nearest /16 (VAE needs /8, DiT patchify needs /16 —
+      // /16 is the universal safe snap; make_latent re-snaps as a backstop).
+      // Re-clicking the active ratio returns to free mode. ↔ swaps values and,
+      // in ratio mode, activates the mirrored ratio so the highlight stays
+      // truthful.
+      const snap16 = (n) => Math.max(64, Math.round((Number(n)||0)/16)*16);
+      const ratioWH = (r) => { const [a,b]=r.split(":").map(Number); return a/b; };
+      const applyRatioFromWidth = () => { if(st.aspect_lock) st.height = snap16(st.width / ratioWH(st.aspect_lock)); };
+      const applyRatioFromHeight = () => { if(st.aspect_lock) st.width = snap16(st.height * ratioWH(st.aspect_lock)); };
+
+      const latentSection = () => {
+        const isQwen = IMAGE_COND_ARCHS.has(st.architecture);
+        const initActive = !!st.init_image && !isQwen;
+        // Fit Method is always visible — it governs how images are conformed
+        // to the latent size on BOTH paths: the Qwen edit references on the
+        // Qwen arch, the img2img init image everywhere else. The context line
+        // under it says which one applies right now, and doubles as the
+        // visible img2img-active indicator so a forgotten init image can't
+        // silently change behavior without the Latent section saying so.
+        // Context line: which image path Fit Method currently governs. On a
+        // non-Qwen arch with no init image it says nothing new (the Reference
+        // Images section explains the Init slot), so no line renders at all.
+        const fitNote = isQwen
+          ? `<div class="io-mini" style="opacity:.7">Applies to the Qwen edit reference images.</div>`
+          : (initActive
+              ? `<div class="io-mini" style="opacity:.7">Img2img active \u2014 init: ${esc(shortName(st.init_image))}. Denoise (Generation) controls strength; start around 0.5.</div>`
+              : ``);
+        return sec("latent","Latent", `
+          <div class="io-half">${num("width","Width",8,64,8192)}<button class="io-icon-btn io-sm" data-wh-swap title="Swap width and height" style="align-self:flex-end">\u2194</button>${num("height","Height",8,64,8192)}</div>
+          <div class="io-row">
+            <span class="io-label">Ratio</span>
+            <div class="io-toggle-grp">${RATIOS.map(r=>`<button class="io-tog${st.aspect_lock===r?" active":""}" data-ratio="${r}" title="Lock aspect ratio ${r} (click again to unlock)">${r}</button>`).join("")}</div>
+          </div>
+          <div class="io-row">
+            <span class="io-label">Fit Method</span>
+            <div class="io-toggle-grp">${FIT_METHODS.map(m=>`<button class="io-tog${st.fit_method===m?" active":""}" data-fit-method="${m}" title="${FIT_TIPS[m]}">${m[0].toUpperCase()+m.slice(1)}</button>`).join("")}</div>
+          </div>
+          ${fitNote}
+          <div class="io-row">
+            <span class="io-label">Batch</span>
+            <input class="io-input" type="number" data-f="batch_size" value="${esc(st.batch_size)}" step="1" min="1" max="64"/>
+          </div>
+        `);
+      };
+
       const samplingSection = () => sec("sampling","Generation", `
-        <div class="io-half">${num("width","Width",8,64,8192)}${num("height","Height",8,64,8192)}</div>
         <div class="io-row">
           <span class="io-label">Seed</span>
           <input class="io-input" type="number" data-f="seed" value="${st.seed}" step="1" min="0"/>
@@ -828,7 +1014,7 @@ app.registerExtension({
           <span class="io-label">After gen</span>
           <select class="io-select" data-f="seed_control">${SEED_CONTROLS.map(c=>`<option value="${c}"${c===st.seed_control?" selected":""}>${c}</option>`).join("")}</select>
         </div>
-        <div class="io-half">${num("steps","Steps",1,1,1000)}${num("cfg","CFG",0.1,0,100)}${num("batch_size","Batch",1,1,64)}</div>
+        <div class="io-half">${num("steps","Steps",1,1,1000)}${num("cfg","CFG",0.1,0,100)}${num("variety","Variety",0.01,0,1,"Increases composition diversity between seeds. Distilled models (Z-Image Turbo, Krea 2 Turbo, Boogu Turbo, ...) often produce near-identical layouts across seeds; Variety adds tiny seeded noise to the prompt conditioning during the early sampling steps so each seed lands on a genuinely different composition, while prompt adherence and detail stay faithful. 0 = off (default). Start around 0.1. Same seed + same Variety reproduces the same image.")}</div>
         <div class="io-half">${selCol("sampler_name","Sampler",samplers)}${selCol("scheduler","Scheduler",schedulers)}</div>
         <div class="io-half">${num("denoise","Denoise",0.01,0,1)}${num("shift","Shift (0=auto)",0.01,0,100,"Sigma shift for flow-matching schedulers. The right value depends on the model architecture — Flux typically uses ~1.0–3.5, SD3/3.5 uses ~3.0, AuraFlow uses ~3.0. 0 = use the architecture's default (recommended unless you know what you're doing). Higher values shift sampling toward later (more refined) noise levels.")}</div>
       `);
@@ -978,12 +1164,15 @@ app.registerExtension({
         // came from the prior generation's snapshot in onExecuted. Matched
         // batches (length-equal) pair by index; unmatched batches only
         // compare image[0] (rest render bare).
-        const refSrcFn = (cmpRefIdx!==null) ? st["ref_image"+(cmpRefIdx+1)] : "";
+        const refSrcFn = (cmpRefIdx!==null)
+          ? (cmpRefIdx===3 ? st.init_image : st["ref_image"+(cmpRefIdx+1)])
+          : "";
         const refSrcUrl = refSrcFn ? imgURL({filename:refSrcFn,subfolder:"",type:"input"}) : null;
+        const refSrcLabel = cmpRefIdx===3 ? "Init" : `Ref ${cmpRefIdx+1}`;
         const matchedBatch = previousImages.length>0 && previousImages.length===previewImages.length;
         const cmpSourceFor = (i) => {
           if (!compareOpen) return null;
-          if (refSrcUrl) return { url: refSrcUrl, label: `Ref ${cmpRefIdx+1}` };
+          if (refSrcUrl) return { url: refSrcUrl, label: refSrcLabel };
           if (matchedBatch) return { url: previousImages[i], label: "Prev" };
           if (previousImages.length>0 && i===0) return { url: previousImages[0], label: "Prev" };
           return null;
@@ -1023,6 +1212,11 @@ app.registerExtension({
         // refiner/upscale toggle without changing the image's base.
         const goBtn = `<button class="io-icon-btn io-go io-hdr" data-seed-keep title="Generate (keep seed)">\u25b6</button>`;
         const diceBtn = `<button class="io-icon-btn io-dice io-hdr" data-seed-rand title="Randomize &amp; Generate">\u{1f3b2}</button>`;
+        // Interrupt (item C): always in the DOM but display-toggled by the
+        // timer (startTimer/stopTimer flip it via syncWandDisabled — no full
+        // render mid-run). Click POSTs ComfyUI's stock /interrupt; the
+        // existing execution_interrupted listener stops the timer.
+        const stopBtn = `<button class="io-icon-btn io-hdr io-stop" data-interrupt title="Interrupt generation" style="display:${timerRunning?"inline-flex":"none"}">\u23f9</button>`;
         // Compare toggle (item 6). Renders as toggled-on regardless of whether
         // a source is available; the slider itself is what hides when no
         // previous and no ref-slot is set.
@@ -1041,7 +1235,7 @@ app.registerExtension({
         // Show the frozen last value (or zero) between runs; startTimer repaints.
         const timer = `<span class="io-timer${timerRunning?" running":""}" data-timer>${fmtTimer(timerElapsedMs)}</span>`;
         return `<div class="io-col-right">
-          <div class="io-preview-head">${goBtn}${diceBtn}<div style="flex:1"></div>${timer}${compareBtn}${saveBtn}</div>
+          <div class="io-preview-head">${goBtn}${diceBtn}${stopBtn}<div style="flex:1"></div>${timer}${compareBtn}${saveBtn}</div>
           <div class="io-preview-scroll">${imgs}</div>
           ${info}
         </div>`;
@@ -1076,6 +1270,19 @@ app.registerExtension({
         el.textContent = fmtTimer(ms);
         el.classList.toggle("running", !!running);
       };
+      // Targeted run-state sync for timer transitions. render() bakes these
+      // in, but startTimer/stopTimer fire from queue events without a render;
+      // poke the live elements so the wand guard and the interrupt button
+      // track the run state mid-flight.
+      const syncWandDisabled = () => {
+        const b = container.querySelector("[data-wand-go]");
+        if(b){
+          b.disabled = wandBusy || timerRunning;
+          b.title = timerRunning ? "Unavailable while an image is generating" : "";
+        }
+        const stopB = container.querySelector("[data-interrupt]");
+        if(stopB) stopB.style.display = timerRunning ? "inline-flex" : "none";
+      };
       // Optional `resumeStart`: re-arm the clock against an epoch from a
       // previous closure (mid-run tab switch) instead of starting at zero.
       const startTimer = (resumeStart) => {
@@ -1084,6 +1291,7 @@ app.registerExtension({
         timerStart = (typeof resumeStart==="number") ? resumeStart : Date.now();
         timerElapsedMs = Date.now()-timerStart;
         paintTimer(timerElapsedMs,true);
+        syncWandDisabled();
         timerInterval = setInterval(()=>{
           timerElapsedMs = Date.now()-timerStart;
           paintTimer(timerElapsedMs,true);
@@ -1095,6 +1303,7 @@ app.registerExtension({
         clearInterval(timerInterval); timerInterval=null;
         timerElapsedMs = Date.now()-timerStart;
         paintTimer(timerElapsedMs,false);  // freeze final value, drop the running glow
+        syncWandDisabled();
       };
       // Restore a timer that was RUNNING when the closure was torn down (tab
       // switch mid-generation). Whether the run is still live can't be known
@@ -1132,7 +1341,7 @@ app.registerExtension({
           <div class="io-inner">
             <div class="io-body">
               <div class="io-col-left">
-                ${presetsSection()}${modelSection()}${loraSection()}${refsSection()}${promptSection()}${samplingSection()}${refinerSection()}${upscaleSection()}${themeSection()}${helpSection()}
+                ${presetsSection()}${modelSection()}${loraSection()}${refsSection()}${promptSection()}${latentSection()}${samplingSection()}${refinerSection()}${upscaleSection()}${themeSection()}${helpSection()}
               </div>
               ${renderPreview()}
             </div>
@@ -1156,6 +1365,26 @@ app.registerExtension({
         container.querySelectorAll("[data-sec]").forEach(el=>el.onclick=(e)=>{e.stopPropagation();open[el.dataset.sec]=!open[el.dataset.sec];save();render();});
         container.querySelectorAll("[data-src]").forEach(el=>el.onclick=(e)=>{e.stopPropagation();st.source_type=el.dataset.src;st.model_file="";st.clip_bundled=false;st.vae_bundled=false;save();render();});
         container.querySelectorAll("[data-umode]").forEach(el=>el.onclick=(e)=>{e.stopPropagation();st.upscale_mode=el.dataset.umode;save();render();});
+        // ── Latent section bindings ──
+        // Ratio toggle: activate snaps height from the current width right
+        // away (visible feedback); re-clicking the active ratio unlocks.
+        container.querySelectorAll("[data-ratio]").forEach(b=>b.addEventListener("click",e=>{
+          e.stopPropagation();
+          const r = b.dataset.ratio;
+          if(st.aspect_lock === r){ st.aspect_lock = ""; }
+          else { st.aspect_lock = r; applyRatioFromWidth(); }
+          save(); render();
+        }));
+        // ↔ swap: flips W/H; in ratio mode also flips to the mirrored ratio.
+        container.querySelector("[data-wh-swap]")?.addEventListener("click",e=>{
+          e.stopPropagation();
+          const w = st.width; st.width = st.height; st.height = w;
+          if(st.aspect_lock) st.aspect_lock = RATIO_MIRROR[st.aspect_lock] || st.aspect_lock;
+          save(); render();
+        });
+        container.querySelectorAll("[data-fit-method]").forEach(b=>b.addEventListener("click",e=>{
+          e.stopPropagation(); st.fit_method = b.dataset.fitMethod; save(); render();
+        }));
         container.querySelectorAll("[data-chk]").forEach(el=>el.onclick=(e)=>{e.stopPropagation();const f=el.dataset.chk;st[f]=!st[f];save();render();});
         // Targeted (non-render) UI sync for the negative-prompt dimmed state.
         // Must NOT call render() — cfg/refiner_cfg fire oninput on every
@@ -1183,6 +1412,15 @@ app.registerExtension({
             // cfg / refiner_cfg gate the negative-textarea dim state. Targeted
             // DOM update (no full render) so number entry doesn't get clobbered.
             if(f==="cfg" || f==="refiner_cfg"){ updateNegativeUi(); }
+            // Ratio lock: editing one dimension recalcs the other. Targeted
+            // update of the sibling input only — render() would clobber the
+            // field mid-typing (same rule as the cfg handler above).
+            if(st.aspect_lock && (f==="width" || f==="height")){
+              if(f==="width") applyRatioFromWidth(); else applyRatioFromHeight();
+              const sib = f==="width" ? "height" : "width";
+              const sibEl = container.querySelector(`[data-f="${sib}"]`);
+              if(sibEl) sibEl.value = st[sib];
+            }
           };
           el.onchange=handler;
           el.addEventListener("click",e=>e.stopPropagation());
@@ -1205,6 +1443,10 @@ app.registerExtension({
         // ── Enhancer Settings sub-panel bindings ──
         container.querySelector('[data-subsec="enhancer_settings"]')?.addEventListener("click",e=>{
           e.stopPropagation(); llmSettingsOpen = !llmSettingsOpen; save(); render();
+          // Populate the recommendation label on first open. Safe: the route
+          // is a pure read now (no VRAM eviction), so this cannot disturb a
+          // loaded diffusion model.
+          if(llmSettingsOpen && llmModel && !llmRecommended && !llmRecommendedBusy) fetchRecommendedLayers();
         });
         container.querySelector("[data-llm-auto-layers]")?.addEventListener("click",e=>{
           e.stopPropagation();
@@ -1238,7 +1480,7 @@ app.registerExtension({
 
         // Reference image upload / clear
         container.querySelectorAll("[data-ref-upload]").forEach(b=>b.addEventListener("click",e=>{e.stopPropagation();uploadRef(b.dataset.refUpload);}));
-        container.querySelectorAll("[data-ref-clear]").forEach(b=>b.addEventListener("click",e=>{e.stopPropagation();st["ref_image"+b.dataset.refClear]="";render();}));
+        container.querySelectorAll("[data-ref-clear]").forEach(b=>b.addEventListener("click",e=>{e.stopPropagation();st[refKey(b.dataset.refClear)]="";render();}));
 
         // Reference THUMBNAILS are the drop/paste targets (not the whole slot
         // row — the upload button is a click target, and a drop landing on it
@@ -1394,6 +1636,16 @@ app.registerExtension({
           await app.queuePrompt(0,1);
         }));
         container.querySelector("[data-save-out]")?.addEventListener("click",e=>{e.stopPropagation();saveOutput();});
+        // Interrupt: api.interrupt() where the frontend provides it, raw POST
+        // to the stock route otherwise. Timer stop arrives via the existing
+        // execution_interrupted listener — nothing else to do here.
+        container.querySelector("[data-interrupt]")?.addEventListener("click",async e=>{
+          e.stopPropagation();
+          try{
+            if(typeof api.interrupt === "function") await api.interrupt();
+            else await fetch("/interrupt",{method:"POST"});
+          }catch(err){ console.warn("[Image Oasis] interrupt failed",err); }
+        });
         // Compare toggle — header button flips compareOpen; the slider DOM
         // appears in renderPreview when a source (previous batch or ref slot)
         // is available.
@@ -1624,7 +1876,7 @@ app.registerExtension({
         inp.type="file"; inp.accept="image/*";
         inp.onchange = async () => {
           const file = inp.files?.[0]; if(!file) return;
-          try{ st["ref_image"+n] = await uploadImageBlob(file, file.name); render(); }
+          try{ st[refKey(n)] = await uploadImageBlob(file, file.name); render(); }
           catch(e){ console.warn("[Image Oasis] upload failed",e); }
         };
         inp.click();
@@ -1643,7 +1895,7 @@ app.registerExtension({
         try{
           const f = dt.files && dt.files[0];
           if(f && f.type.startsWith("image/")){
-            st["ref_image"+n] = await uploadImageBlob(f, f.name);
+            st[refKey(n)] = await uploadImageBlob(f, f.name);
             render(); return;
           }
           let url = (dt.getData("text/uri-list")||"").split(/\r?\n/).find(s=>s && !s.startsWith("#"));
@@ -1662,7 +1914,7 @@ app.registerExtension({
           let nm = "";
           try{ nm = new URL(abs).searchParams.get("filename")||""; }catch{}
           if(!nm) nm = abs.split(/[?#]/)[0].split("/").pop()||"";
-          st["ref_image"+n] = await uploadImageBlob(blob, nm || `dropped_${Date.now()}.png`);
+          st[refKey(n)] = await uploadImageBlob(blob, nm || `dropped_${Date.now()}.png`);
           render();
         }catch(e){ console.warn("[Image Oasis] drop failed",e); }
       };
@@ -1682,8 +1934,16 @@ app.registerExtension({
       // are mid-edit on, reset your seed, or swap your reference images. Excluded
       // at BOTH save and load: save keeps stored presets clean; load protects the
       // current values (and shields against older presets that baked these in).
+      // Excluded from presets, both on save AND on load (loadPreset filters
+      // stored configs through this list too, so presets saved before an
+      // exclusion was added can't reintroduce the field). Session work
+      // (prompts, seed, images) plus the entire Latent section — canvas
+      // geometry belongs to the current task, not to a saved model setup.
       const PRESET_EXCLUDE = ["user_prompt", "positive", "negative", "seed",
-                              "ref_image1", "ref_image2", "ref_image3"];
+                              "ref_image1", "ref_image2", "ref_image3",
+                              "init_image",
+                              "width", "height", "batch_size",
+                              "aspect_lock", "fit_method"];
 
       const presetConfig = (state) => {
         const out = {...state};
@@ -1797,15 +2057,20 @@ app.registerExtension({
           llmModels = Array.isArray(r.models) ? r.models : [];
           if(!llmModel && llmModels.length) llmModel = llmModels[0];
         }catch(e){ console.warn("[Image Oasis] llm models",e); llmModels=[]; }
-        // Kick off the initial recommendation fetch if a model is selected.
-        // Done after the list arrives so the model name is locked in.
-        if (llmModel) fetchRecommendedLayers();
+        // NOTE: deliberately no recommendation fetch here. onAdded fires on
+        // every node add AND every tab-switch closure rebuild; fetching from
+        // here made the recommendation a passive side effect of just looking
+        // at the node. The fetch now runs only on a model change or on
+        // opening the Enhancer Settings panel (both side-effect-free — the
+        // backend route no longer evicts).
       };
 
-      // GET /image_oasis/llm_recommended_layers — backend reads the GGUF header,
-      // triggers a targeted eviction of tracked Comfy models, measures free
-      // VRAM, and returns {total, layers, all}. When Auto is on, the result
-      // also becomes the GPU-layers field value used at enhance time.
+      // GET /image_oasis/llm_recommended_layers — backend reads the GGUF header
+      // and current free VRAM, returns {total, layers, all}. Pure read: no
+      // eviction, so calling this can never disturb a loaded diffusion model.
+      // The number is conservative while a diffusion model occupies VRAM; the
+      // enhance response reports the layers actually used post-eviction and
+      // the label updates from that.
       const fetchRecommendedLayers = async () => {
         if (!llmModel) { llmRecommended = null; render(); return; }
         // .safetensors models can't be loaded by the enhancer yet; skip the
@@ -1833,11 +2098,15 @@ app.registerExtension({
 
       const runEnhance = async () => {
         if(wandBusy) return;
+        // Enhance is inoperative while an image is generating — loading the
+        // LLM would evict the diffusion model mid-run. The backend enforces
+        // this too (409); this guard just avoids the round trip.
+        if(timerRunning){ alert("Enhance is unavailable while an image is generating."); return; }
         const cur = (st.user_prompt||"").trim();
         if(!cur){ console.warn("[Image Oasis] nothing to enhance — User Prompt is empty"); return; }
         if(!llmModel){ alert("Select an enhancer model (place .gguf files in models/LLM)."); return; }
-        // Layers actually sent: Auto on -> recommendation (or -1 if missing);
-        // Auto off -> the user's manual value. Backend coerces -1 = all.
+        // Layers sent: Auto on -> the backend recomputes post-eviction (the
+        // value here is just a fallback); Auto off -> the user's manual value.
         const layersToSend = llmAutoLayers
           ? (llmRecommended ? llmRecommended.layers : -1)
           : llmGpuLayers;
@@ -1849,6 +2118,7 @@ app.registerExtension({
               prompt: cur,
               style: llmStyle,
               model: llmModel,
+              auto_layers: llmAutoLayers,
               n_gpu_layers: layersToSend,
               n_ctx: llmContext,
               max_tokens: llmMaxTokens,
@@ -1862,6 +2132,14 @@ app.registerExtension({
             // Re-clicks always overwrite the Enhanced Prompt — that's the
             // designed iteration loop. The User Prompt is the sticky source.
             st.positive = data.enhanced;
+            // Sync the recommendation label to what the backend ACTUALLY
+            // loaded (computed post-eviction, so it reflects real free VRAM
+            // rather than the conservative pre-eviction estimate).
+            if(typeof data.gpu_layers === "number"){
+              const total = llmRecommended?.total || 0;
+              llmRecommended = { total, layers: data.gpu_layers, all: data.gpu_layers === -1 };
+              if(llmAutoLayers) llmGpuLayers = data.gpu_layers;
+            }
           }
         }catch(e){
           alert("Enhance failed: " + e.message);
@@ -1870,8 +2148,28 @@ app.registerExtension({
         }
       };
 
+      // Populate the arch structures from the registry-served payload. The
+      // arch entry order in registry.py becomes the dropdown order. Applied
+      // only when the payload actually carries archs, so a failed or old
+      // backend leaves the hardcoded fallbacks intact.
+      const applyArchs = (m) => {
+        const list = m && Array.isArray(m.archs) ? m.archs : null;
+        if(list && list.length){
+          ARCHS = list.map(a=>a.key);
+          ARCH_LABELS = Object.fromEntries(list.map(a=>[a.key, a.label || a.key]));
+          IMAGE_COND_ARCHS = new Set(list.filter(a=>a.image_cond).map(a=>a.key));
+          CLIP_SLOTS = Object.fromEntries(list.map(a=>[a.key, a.clip_slots || 1]));
+        }
+        if(m && Array.isArray(m.clip_types) && m.clip_types.length){
+          CLIP_TYPES = m.clip_types;
+        }
+      };
+
       const loadModels = async () => {
-        try{ allModels = await (await fetch("/image_oasis/models")).json(); }catch(e){ console.warn("[Image Oasis]",e); }
+        try{
+          allModels = await (await fetch("/image_oasis/models")).json();
+          applyArchs(allModels);
+        }catch(e){ console.warn("[Image Oasis]",e); }
         try{
           const oi = await (await fetch("/object_info/KSampler")).json();
           const inp = oi?.KSampler?.input?.required;
