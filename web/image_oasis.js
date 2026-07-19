@@ -97,10 +97,19 @@ const CSS = `
 .io-mini{font-size:9px;color:var(--io-dim);font-family:var(--io-mono);letter-spacing:.04em;}
 .io-badge{font-size:8px;background:#5a5a5a;color:#eee;border-radius:3px;padding:1px 4px;font-family:var(--io-mono);font-weight:700;margin-left:5px;}
 .io-body{display:flex;gap:9px;flex:1;min-height:0;overflow:hidden;}
-.io-col-left{display:flex;flex-direction:column;gap:9px;overflow-y:auto;overflow-x:hidden;flex:0 0 360px;min-height:0;min-width:0;}
+.io-col-left-wrap{display:flex;flex-direction:column;flex:0 0 360px;min-height:0;min-width:0;overflow:hidden;}
+.io-col-left{display:flex;flex-direction:column;gap:9px;overflow-y:auto;overflow-x:hidden;flex:1;min-height:0;min-width:0;}
 .io-col-left::-webkit-scrollbar{width:4px;}
 .io-col-left::-webkit-scrollbar-thumb{background:var(--io-bd);border-radius:2px;}
 .io-col-left::-webkit-scrollbar-thumb:hover{background:var(--io-bd);}
+.io-bypass-bar{flex:0 0 auto;padding-top:8px;margin-top:4px;border-top:1px solid var(--io-bd);}
+.io-bypass-btn{width:100%;box-sizing:border-box;height:30px;margin:0;border-radius:4px;border:1px solid var(--io-bd);background:#191919;color:#ddd;font-family:var(--io-mono);font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;}
+.io-bypass-btn:hover{border-color:#777;color:#fff;}
+.io-bypass-btn.is-bypassed{background:var(--io-accent-dim);border-color:var(--io-accent);color:#fff;}
+.io-lora-civit{flex:0 0 56px;height:22px;padding:0 2px;margin:0;border-radius:3px;border:1px solid var(--io-bd);background:#191919;color:var(--io-dim);font-family:var(--io-mono);font-size:8px;font-weight:700;letter-spacing:.02em;cursor:pointer;text-align:center;box-sizing:border-box;}
+.io-lora-civit:hover{border-color:var(--io-accent);color:#fff;}
+.io-lora-civit:disabled{opacity:.35;cursor:default;}
+.io-lora-civit-trail{flex:0 0 18px;}
 .io-col-right{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;background:#161616;border:1px solid var(--io-bd);border-radius:5px;overflow:hidden;}
 .io-preview-head{position:relative;display:flex;align-items:center;gap:8px;font-family:var(--io-mono);font-size:9px;font-weight:700;letter-spacing:.08em;color:var(--io-accent);text-transform:uppercase;padding:6px 9px;border-bottom:1px solid var(--io-bd);flex-shrink:0;}
 .io-preview-head .io-mini{flex:1;}
@@ -126,6 +135,38 @@ const CSS = `
 .io-batch-nav{display:inline-flex;align-items:center;gap:4px;flex-shrink:0;color:var(--io-dim);font-family:var(--io-mono);font-size:9px;letter-spacing:.04em;}
 .io-batch-arrow{background:none;border:none;color:var(--io-dim);cursor:pointer;font-size:14px;line-height:1;padding:0 4px;font-family:var(--io-mono);}
 .io-batch-arrow:hover{color:var(--io-accent);}
+/* History strip under the viewer (LTX Oasis scene-bar parity, images). */
+.io-history{display:flex;gap:5px;overflow-x:auto;padding:4px 9px 6px;min-height:58px;flex-shrink:0;border-top:1px solid var(--io-bd);}
+.io-history::-webkit-scrollbar{height:6px;}
+.io-history::-webkit-scrollbar-thumb{background:var(--io-bd);border-radius:3px;}
+.io-thumb{position:relative;flex:0 0 auto;width:88px;height:50px;border-radius:4px;border:2px dashed var(--io-go-bd);cursor:pointer;background:#000 center/cover no-repeat;box-sizing:border-box;transition:box-shadow .12s ease;}
+.io-thumb:hover{box-shadow:0 0 0 1px rgba(255,255,255,.18);}
+.io-thumb.io-saved{border-style:solid;}
+.io-thumb.io-active{border-color:var(--io-accent);}
+.io-thumb-x{position:absolute;right:3px;top:3px;width:14px;height:14px;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.75);color:#eee;border-radius:50%;font-size:9px;line-height:1;font-weight:bold;cursor:pointer;border:1px solid rgba(255,255,255,.25);user-select:none;}
+.io-thumb:hover .io-thumb-x{display:flex;}
+.io-thumb-x:hover{background:rgba(180,40,40,.9);color:#fff;border-color:rgba(255,255,255,.55);}
+.io-thumb-add{position:relative;flex:0 0 auto;order:99;width:88px;height:50px;border-radius:4px;border:2px dashed var(--io-dim);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--io-dim);font-size:22px;line-height:1;user-select:none;box-sizing:border-box;transition:border-color .12s,color .12s;}
+.io-thumb-add:hover{border-color:var(--io-accent);color:var(--io-accent);}
+.io-icon-btn.io-save.io-hdr.io-saved-mark{color:var(--io-go-bd);}
+/* Load-from-disk picker (body overlay; not scoped to .io-widget). */
+.io-picker-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;display:flex;align-items:center;justify-content:center;font-family:'DM Sans',sans-serif;}
+.io-picker{background:#2a2a2a;border:1px solid #3a3a3a;border-radius:8px;width:min(560px,90vw);max-height:80vh;display:flex;flex-direction:column;color:#ddd;}
+.io-picker-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #3a3a3a;}
+.io-picker-title{font-weight:600;}
+.io-picker-close{background:none;border:none;color:#888;cursor:pointer;font-size:14px;padding:2px 8px;border-radius:3px;}
+.io-picker-close:hover{color:#ddd;background:rgba(255,255,255,.06);}
+.io-picker-search{padding:8px 14px;border-bottom:1px solid #3a3a3a;}
+.io-picker-search input{width:100%;background:#191919;border:1px solid #3a3a3a;color:#ddd;padding:6px 10px;border-radius:4px;font-family:inherit;box-sizing:border-box;outline:none;}
+.io-picker-search input:focus{border-color:#6f8bbd;}
+.io-picker-list{flex:1;overflow-y:auto;padding:4px 0;}
+.io-picker-list::-webkit-scrollbar{width:6px;}
+.io-picker-list::-webkit-scrollbar-thumb{background:#3a3a3a;border-radius:3px;}
+.io-picker-row{padding:8px 14px;cursor:pointer;display:flex;justify-content:space-between;gap:12px;font-family:'Space Mono',monospace;font-size:11px;border-bottom:1px solid rgba(255,255,255,.03);}
+.io-picker-row:hover{background:rgba(255,255,255,.05);}
+.io-picker-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ccc;}
+.io-picker-meta{color:#888;flex-shrink:0;}
+.io-picker-empty{padding:24px;text-align:center;color:#888;font-size:12px;}
 /* ── In-node help panel (item 2) ──
    Renders the markdown loaded from /image_oasis/help. Fixed 300px tall,
    scrollable, with prose-friendly typography that still respects the theme. */
@@ -372,7 +413,13 @@ function mdToHtml(md){
 // remain the source of truth for anything untouched.
 function applyTheme(){
   let el = document.getElementById("io-theme-override");
-  if(!el){ el=document.createElement("style"); el.id="io-theme-override"; document.head.appendChild(el); }
+  if(!el){ el=document.createElement("style"); el.id="io-theme-override"; }
+  // ALWAYS (re-)append: the override and the base CSS both declare :root
+  // variables, so with equal specificity the LAST element in <head> wins.
+  // Since the theme now loads at module scope, injectCSS (node creation)
+  // can land after it — appendChild moves an already-attached element to
+  // the end, so every apply re-asserts the override's winning position.
+  document.head.appendChild(el);
   const decls = IO_THEME_VARS
     .map(v=>v.k)
     .filter(k=>IO_THEME[k] && IO_THEME[k]!==IO_THEME_DEFAULTS[k])
@@ -406,6 +453,13 @@ async function loadTheme(){
   applyTheme();
   IO_THEME_LISTENERS.forEach(fn=>{ try{fn();}catch{} });
 }
+// The theme is a PAGE-global setting, not a node feature: consumers of the
+// --io-* variables (Video Oasis, future family nodes) can be on screen with
+// no Image Oasis node in the active graph. Fetch + apply as soon as the
+// extension loads, so the saved theme survives a hard refresh regardless of
+// which workflow is active. The onAdded call remains as the retry path (the
+// once-guard makes it a cheap re-apply when this fetch already succeeded).
+loadTheme();
 
 // Live-preview a theme change: paint :root and tell every open node to
 // repaint its editor swatches. Does NOT persist to disk — the user controls
@@ -514,17 +568,17 @@ const FIT_TIPS = {
   crop:"Scale to fill Width x Height preserving aspect, then center-crop the overflow. No distortion; edges may be lost.",
   pad:"Scale to fit inside Width x Height preserving aspect; leftover space is edge-padded. Padded regions are model-invented.",
 };
-let ARCH_LABELS = {auraflow:"AuraFlow",flux:"Flux.1 / Flux.2",krea2:"Krea 2 (Turbo / Raw)",other:"SD1 / SD1.5 / No Patch",sd3:"SD3 / SD3.5",qwen_image_edit:"Qwen-Image-Edit"};
+let ARCH_LABELS = {auraflow:"AuraFlow / Z-Image",boogu:"Boogu-Image 0.1 (Base / Turbo)",flux:"Flux.1 / Flux.2",krea2:"Krea 2 (Turbo / Raw)",other:"SD1 / SD1.5 / No Patch",sd3:"SD3 / SD3.5",qwen_image_edit:"Qwen-Image-Edit"};
 // How many CLIP slots each arch exposes in the UI. Registry-fed like ARCHS
 // above (fallback values here); nodes.py trims at runtime so a 1-slot arch
 // never loads with stale slot-2/3 values.
-let CLIP_SLOTS = {auraflow:1, flux:2, krea2:1, qwen_image_edit:1, other:2, sd3:3};
+let CLIP_SLOTS = {auraflow:1, boogu:1, flux:2, krea2:1, qwen_image_edit:1, other:2, sd3:3};
 const SOURCES = ["checkpoint","diffusion","gguf"];
 const SOURCE_LABELS = {checkpoint:"Checkpoint", diffusion:"Diffusion", gguf:"GGUF"};
 const WEIGHT_DTYPES = ["default","fp8_e4m3fn","fp8_e4m3fn_fast","fp8_e5m2"];
 // Registry-fed like the arch structures above (see applyArchs) — fallback
 // values only. Add new CLIP types in registry.py's CLIP_TYPE_CHOICES.
-let CLIP_TYPES = ["","stable_diffusion","sd3","flux","qwen_image","lumina2","hidream","chroma","flux2","krea2"];
+let CLIP_TYPES = ["","stable_diffusion","sd3","flux","qwen_image","lumina2","hidream","chroma","flux2","krea2","boogu"];
 const UPSCALE_MODES = ["algorithmic","model"];
 const UPSCALE_METHODS = ["lanczos","bicubic","bilinear","nearest-exact","area"];
 const MAX_SEED = 1125899906842624;  // 2^50, matches ComfyUI's seed range
@@ -559,13 +613,21 @@ app.registerExtension({
     nodeType.prototype.onNodeCreated = function () {
       if (_onCreated) _onCreated.apply(this, arguments);
       injectCSS();
-      this.setSize([1000, 670]);
+      this.setSize([1030, 770]);
       this.color = "#000000"; this.bgcolor = "#202020";
       this.serialize_widgets = true;
 
       const selfNode = this;
       const container = document.createElement("div");
       container.className = "io-widget";
+      const HISTORY_CAP = 24;
+      const newRand = () => Date.now() + Math.floor(Math.random() * 1000);
+      const fmtSize = (bytes) => {
+        const n = +bytes || 0;
+        if (n < 1024) return n + " B";
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+        return (n / (1024 * 1024)).toFixed(2) + " MB";
+      };
       // Delegated handler for the ⤢ use-this-size button on ref info lines.
       // Attached ONCE here — info divs get swapped in asynchronously after
       // fetches and would slip through the per-render bind() pass, and a
@@ -616,7 +678,9 @@ app.registerExtension({
       let previewInfo = [];
       let previewMeta = "";
       let previewSizeKB = 0;
-      let currentBatchIdx = 0;       // which image of the current batch is displayed (0..N-1)
+      let currentBatchIdx = 0;       // always 0 with history strip (one image in the viewer)
+      let history = [];              // strip entries under the viewer
+      let activeIdx = -1;            // which history entry is loaded in the viewer
       let compareOpen = false;       // output-header Compare toggle (item 6 wires the actual slider)
       // ── Compare-slider state (item 6) ──
       let previousImages = [];       // URLs of the prior batch (snapshotted in onExecuted)
@@ -743,6 +807,8 @@ app.registerExtension({
           ${on ? `<div class="io-lora-trigger-row" data-lora-trigger-row="${i}">
             <span class="io-lora-trigger-spacer"></span>
             <input class="io-input" type="text" data-lora-trigger="${i}" placeholder="trigger words\u2026" value="${esc(l.trigger_words||"")}" title="Optional trigger word or phrase. Prepended to the positive prompt (in stack order, comma-separated) when this LoRA is enabled. Leave blank to skip."/>
+            <button class="io-lora-civit" data-lora-civit="${i}" ${l.name?"":"disabled"} title="Open this LoRA's CivitAI page (hash lookup)">CivitAI</button>
+            <span class="io-lora-civit-trail" aria-hidden="true"></span>
           </div>` : ""}`;
         }).join("");
         // Header: spacer aligns with grip+toggle (14+5+20 = 39px), then LoRA
@@ -1154,6 +1220,78 @@ app.registerExtension({
         `);
       };
 
+      // ── History strip helpers (under the viewer) ──
+      const imgURL = (info) => {
+        const p = new URLSearchParams({
+          filename: info.filename,
+          subfolder: info.subfolder || "",
+          type: info.type || "temp",
+          t: String(info.rand != null ? info.rand : Date.now()),
+        });
+        return `${window.location.origin}/view?${p}`;
+      };
+      const currentEntry = () => history[activeIdx] || null;
+      const syncPreviewFromHistory = () => {
+        const e = currentEntry();
+        if (!e) {
+          previewInfo = [];
+          previewImages = [];
+          previewMeta = "";
+          previewSizeKB = 0;
+          currentBatchIdx = 0;
+          return;
+        }
+        previewInfo = [{
+          filename: e.filename,
+          subfolder: e.subfolder || "",
+          type: e.type || "temp",
+        }];
+        previewImages = [imgURL(e)];
+        currentBatchIdx = 0;
+        previewSizeKB = e.size_kb || 0;
+        previewMeta = "";
+      };
+      const loadEntry = (idx) => {
+        if (idx < 0 || idx >= history.length) return;
+        activeIdx = idx;
+        syncPreviewFromHistory();
+        render();
+        const thumb = container.querySelector(`[data-hist-idx="${idx}"]`);
+        thumb?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+      };
+      const removeEntry = (idx) => {
+        if (idx < 0 || idx >= history.length) return;
+        const wasActive = idx === activeIdx;
+        history.splice(idx, 1);
+        if (!history.length) {
+          activeIdx = -1;
+          syncPreviewFromHistory();
+          render();
+          return;
+        }
+        if (wasActive) activeIdx = Math.min(idx, history.length - 1);
+        else if (idx < activeIdx) activeIdx -= 1;
+        syncPreviewFromHistory();
+        render();
+      };
+      const addHistoryEntry = (info, { saved = false, external = false } = {}) => {
+        const entry = {
+          filename: info.filename,
+          subfolder: info.subfolder || "",
+          type: info.type || (saved ? "output" : "temp"),
+          size_kb: info.size_kb || 0,
+          rand: newRand(),
+          saved: !!saved,
+          savedPath: saved
+            ? ((info.subfolder ? info.subfolder + "/" : "") + info.filename)
+            : "",
+          external: !!external,
+        };
+        history.push(entry);
+        while (history.length > HISTORY_CAP) history.shift();
+        return entry;
+      };
+
       const renderPreview = () => {
         const hasImgs = previewImages.length > 0;
         // Clamp index in case persistence restored an out-of-range value.
@@ -1202,8 +1340,10 @@ app.registerExtension({
             imgs = `<img class="io-preview-img" src="${esc(u)}" data-prev-idx="${i}" onerror="this.outerHTML='<div class=&quot;io-preview-empty&quot;>Generated image<br/>appears here</div>'"/>`;
           }
         }
+        const cur = history[activeIdx] || null;
+        const savedMark = !!(cur && cur.saved);
         const saveBtn = hasImgs
-          ? `<button class="io-icon-btn io-save io-hdr" data-save-out title="Save to output folder">\u{1f4be}</button>`
+          ? `<button class="io-icon-btn io-save io-hdr${savedMark?" io-saved-mark":""}" data-save-out title="${savedMark?("Saved to "+esc(cur.savedPath||cur.filename)+": click to save another copy"):"Save to output folder"}">${savedMark?"\u2713":"\u{1f4be}"}</button>`
           : "";
         // Randomize-seed + queue lives on the header so it's reachable without
         // keeping the Generation group open. Always present (incl. empty state)
@@ -1223,14 +1363,18 @@ app.registerExtension({
         const compareBtn = hasImgs
           ? `<button class="io-icon-btn io-compare io-hdr${compareOpen?" active":""}" data-compare-tog title="Compare with previous">\u25e7</button>`
           : "";
-        // Batch nav for the info bar (footer). Renders only when there are
-        // multiple images. Wrap-around at both ends.
-        const batchNav = hasImgs && previewImages.length>1
-          ? `<span class="io-batch-nav"><button class="io-batch-arrow" data-batch-prev title="Previous image">\u2039</button>${currentBatchIdx+1}/${previewImages.length}<button class="io-batch-arrow" data-batch-next title="Next image">\u203a</button></span>`
+        // History nav in the info bar when the strip has more than one entry.
+        const histNav = history.length > 1
+          ? `<span class="io-batch-nav"><button class="io-batch-arrow" data-hist-prev title="Previous image">\u2039</button>${activeIdx+1}/${history.length}<button class="io-batch-arrow" data-hist-next title="Next image">\u203a</button></span>`
           : "";
         const info = hasImgs
-          ? `<div class="io-info-bar"><span class="io-info-text" data-info-bar>${previewMeta || "loading\u2026"}</span>${batchNav}</div>`
-          : "";
+          ? `<div class="io-info-bar"><span class="io-info-text" data-info-bar>${previewMeta || "loading\u2026"}</span>${histNav}</div>`
+          : (history.length ? `<div class="io-info-bar"><span class="io-info-text">History empty in viewer</span>${histNav}</div>` : "");
+        const thumbs = history.map((e,i)=>{
+          const path = (e.subfolder ? e.subfolder + "/" : "") + (e.filename || "");
+          return `<div class="io-thumb${e.saved?" io-saved":""}${i===activeIdx?" io-active":""}" data-hist-idx="${i}" title="${esc(path)}" style="background-image:url('${esc(imgURL(e))}')"><div class="io-thumb-x" data-hist-del="${i}" title="Remove from history (does not delete the file)">\u2715</div></div>`;
+        }).join("");
+        const histStrip = `<div class="io-history" data-history>${thumbs}<div class="io-thumb-add" data-hist-add title="Load an image from output/ into the history bar">+</div></div>`;
         // Layout: [go][dice] | spacer | timer (absolute-centered) | [compare][save].
         // Show the frozen last value (or zero) between runs; startTimer repaints.
         const timer = `<span class="io-timer${timerRunning?" running":""}" data-timer>${fmtTimer(timerElapsedMs)}</span>`;
@@ -1238,20 +1382,24 @@ app.registerExtension({
           <div class="io-preview-head">${goBtn}${diceBtn}${stopBtn}<div style="flex:1"></div>${timer}${compareBtn}${saveBtn}</div>
           <div class="io-preview-scroll">${imgs}</div>
           ${info}
+          ${histStrip}
         </div>`;
       };
 
       // Compose the info string from the loaded image + known metadata.
       const buildMeta = (imgEl) => {
-        const info = previewInfo[0] || {};
-        const fn = (info.filename||"").split(/[/\\]/).pop();
+        const e = currentEntry() || previewInfo[0] || {};
+        const fn = (e.filename||"").split(/[/\\]/).pop();
         const dims = imgEl && imgEl.naturalWidth ? `${imgEl.naturalWidth}\u00d7${imgEl.naturalHeight}` : "";
-        const count = previewImages.length>1 ? `${previewImages.length} imgs` : "";
         const size = previewSizeKB ? `${previewSizeKB} KB` : "";
-        const parts = [dims, count, fn, size].filter(Boolean).map(esc);
+        const parts = [dims, fn, size].filter(Boolean).map(esc);
         previewMeta = parts.map((p,i)=> i===0 ? `<span class="io-info-label">${p}</span>` : p).join("  \u00b7  ");
         const bar = container.querySelector("[data-info-bar]");
         if(bar) bar.innerHTML = previewMeta;
+        if (imgEl && imgEl.naturalWidth && currentEntry()) {
+          currentEntry().width = imgEl.naturalWidth;
+          currentEntry().height = imgEl.naturalHeight;
+        }
       };
 
       // ── Execution timer ──
@@ -1337,11 +1485,19 @@ app.registerExtension({
         // help text — annoying when reading along while configuring.
         const helpEl = container.querySelector(".io-help-body");
         const helpTop = helpEl ? helpEl.scrollTop : 0;
+        const histEl = container.querySelector("[data-history]");
+        const histLeft = histEl ? histEl.scrollLeft : 0;
+        const bypassed = (selfNode.mode|0) === 4;
         container.innerHTML = `
           <div class="io-inner">
             <div class="io-body">
-              <div class="io-col-left">
-                ${presetsSection()}${modelSection()}${loraSection()}${refsSection()}${promptSection()}${latentSection()}${samplingSection()}${refinerSection()}${upscaleSection()}${themeSection()}${helpSection()}
+              <div class="io-col-left-wrap">
+                <div class="io-col-left">
+                  ${presetsSection()}${modelSection()}${loraSection()}${refsSection()}${promptSection()}${latentSection()}${samplingSection()}${refinerSection()}${upscaleSection()}${themeSection()}${helpSection()}
+                </div>
+                <div class="io-bypass-bar">
+                  <button type="button" class="io-bypass-btn${bypassed?" is-bypassed":""}" data-node-bypass title="${bypassed?"Node is bypassed (skipped at execution). Click to activate.":"Click to bypass this node (same as rgthree bypass / mode 4)."}">${bypassed?"Activate Node":"Bypass Node"}</button>
+                </div>
               </div>
               ${renderPreview()}
             </div>
@@ -1351,6 +1507,8 @@ app.registerExtension({
         if (sc2) sc2.scrollTop = scTop;
         const help2 = container.querySelector(".io-help-body");
         if (help2 && helpTop) help2.scrollTop = helpTop;
+        const hist2 = container.querySelector("[data-history]");
+        if (hist2) hist2.scrollLeft = histLeft;
         // NOTE: render() must NOT call save(). Coupling draw to persist creates a
         // re-render loop (save -> widget value change -> redraw -> render -> save).
         // save() is called only by actual user edits below.
@@ -1595,7 +1753,12 @@ app.registerExtension({
         });
         container.querySelectorAll("[data-lora-name]").forEach(el=>{
           el.addEventListener("click",e=>e.stopPropagation());
-          el.addEventListener("change",e=>{e.stopPropagation();st.loras[+el.dataset.loraName].name=el.value;});
+          el.addEventListener("change",e=>{
+            e.stopPropagation();
+            st.loras[+el.dataset.loraName].name=el.value;
+            const btn = container.querySelector(`[data-lora-civit="${el.dataset.loraName}"]`);
+            if (btn) btn.disabled = !el.value;
+          });
         });
         // Model-strength edit: mirror to strength_clip in state. Field is no
         // longer surfaced in the UI; the JS keeps clip == model so loading
@@ -1618,6 +1781,37 @@ app.registerExtension({
           el.addEventListener("click",e=>e.stopPropagation());
           const h=()=>{ st.loras[+el.dataset.loraTrigger].trigger_words = el.value; };
           el.onchange=h; el.oninput=h;
+        });
+        container.querySelectorAll("[data-lora-civit]").forEach(b=>b.addEventListener("click",async e=>{
+          e.stopPropagation();
+          const name = (st.loras[+b.dataset.loraCivit]?.name || "").trim();
+          if (!name || b.dataset.busy === "1") return;
+          const prev = b.textContent;
+          const tip = b.title;
+          b.dataset.busy = "1";
+          b.disabled = true;
+          b.textContent = "\u2026";
+          try{
+            const r = await fetch("/image_oasis/civitai_lora?name=" + encodeURIComponent(name));
+            const data = await r.json().catch(()=>({}));
+            if (!r.ok || !data.url) throw new Error(data.error || "Not found on CivitAI");
+            window.open(data.url, "_blank", "noopener,noreferrer");
+            b.title = tip;
+          }catch(err){
+            b.title = "CivitAI: " + (err.message || err);
+            console.warn("[Image Oasis] CivitAI lookup failed", err);
+          }finally{
+            b.dataset.busy = "0";
+            b.textContent = prev;
+            b.disabled = !(st.loras[+b.dataset.loraCivit]?.name || "").trim();
+          }
+        }));
+        container.querySelector("[data-node-bypass]")?.addEventListener("click",e=>{
+          e.stopPropagation();
+          const MODE_ALWAYS = 0, MODE_BYPASS = 4;
+          selfNode.mode = ((selfNode.mode|0) === MODE_BYPASS) ? MODE_ALWAYS : MODE_BYPASS;
+          app.graph?.setDirtyCanvas?.(true, true);
+          render();
         });
 
         // Seed dice + save output
@@ -1666,16 +1860,31 @@ app.registerExtension({
           cmpDragging = true;
           cmpActiveContainer = h.closest(".io-cmp-item");
         }));
-        // Batch navigation arrows in the info bar. Wrap-around at both ends —
-        // ‹ at index 0 jumps to the last image; › at the last jumps to 0.
-        const _nav = (delta) => {
-          if(previewImages.length<2) return;
-          const n = previewImages.length;
-          currentBatchIdx = (currentBatchIdx + delta + n) % n;
-          render();
+        // History navigation (info-bar arrows + strip click / delete / +).
+        const _histNav = (delta) => {
+          if (history.length < 2) return;
+          const n = history.length;
+          loadEntry((activeIdx + delta + n) % n);
         };
-        container.querySelector("[data-batch-prev]")?.addEventListener("click",e=>{e.stopPropagation();_nav(-1);});
-        container.querySelector("[data-batch-next]")?.addEventListener("click",e=>{e.stopPropagation();_nav(+1);});
+        container.querySelector("[data-hist-prev]")?.addEventListener("click",e=>{e.stopPropagation();_histNav(-1);});
+        container.querySelector("[data-hist-next]")?.addEventListener("click",e=>{e.stopPropagation();_histNav(+1);});
+        container.querySelectorAll("[data-hist-idx]").forEach(el=>{
+          el.addEventListener("click",e=>{
+            if (e.target.closest("[data-hist-del]")) return;
+            e.stopPropagation();
+            loadEntry(+el.dataset.histIdx);
+          });
+        });
+        container.querySelectorAll("[data-hist-del]").forEach(el=>{
+          el.addEventListener("click",e=>{
+            e.stopPropagation();
+            removeEntry(+el.dataset.histDel);
+          });
+        });
+        container.querySelector("[data-hist-add]")?.addEventListener("click",e=>{
+          e.stopPropagation();
+          openPicker();
+        });
 
         // Build the info bar once the primary preview image has loaded.
         const primaryImg = container.querySelector('[data-prev-idx="0"]');
@@ -1898,7 +2107,9 @@ app.registerExtension({
             st[refKey(n)] = await uploadImageBlob(f, f.name);
             render(); return;
           }
-          let url = (dt.getData("text/uri-list")||"").split(/\r?\n/).find(s=>s && !s.startsWith("#"));
+          let url = "";
+          try { url = (dt.getData("application/x-oasis-frame") || "").trim(); } catch { /* */ }
+          if(!url) url = (dt.getData("text/uri-list")||"").split(/\r?\n/).find(s=>s && !s.startsWith("#")) || "";
           if(!url) url = (dt.getData("text/plain")||"").trim();
           if(!url){
             const html = dt.getData("text/html")||"";
@@ -1906,14 +2117,20 @@ app.registerExtension({
             if(m) url = m[1];
           }
           if(!url) return;
-          const abs = new URL(url, window.location.href).href;   // resolve relative/protocol-relative
+          // Filename-only leftovers from a broken drag payload — not a real source.
+          if(!/^(data:|blob:|https?:|\/)/i.test(url)) return;
+          const abs = url.startsWith("data:") || url.startsWith("blob:")
+            ? url
+            : new URL(url, window.location.href).href;   // resolve relative/protocol-relative
           const resp = await fetch(abs);
           if(!resp.ok) throw new Error("HTTP "+resp.status);
           const blob = await resp.blob();
-          if(!blob.type.startsWith("image/")) throw new Error("not an image: "+blob.type);
+          if(!blob.type.startsWith("image/") && !url.startsWith("data:image/"))
+            throw new Error("not an image: "+blob.type);
           let nm = "";
           try{ nm = new URL(abs).searchParams.get("filename")||""; }catch{}
-          if(!nm) nm = abs.split(/[?#]/)[0].split("/").pop()||"";
+          if(!nm && !abs.startsWith("data:") && !abs.startsWith("blob:"))
+            nm = abs.split(/[?#]/)[0].split("/").pop()||"";
           st[refKey(n)] = await uploadImageBlob(blob, nm || `dropped_${Date.now()}.png`);
           render();
         }catch(e){ console.warn("[Image Oasis] drop failed",e); }
@@ -1976,26 +2193,26 @@ app.registerExtension({
         expandedPresets.delete(id); await loadPresets(); render();
       };
 
-      // ── Output preview (render to the right pane) ──
-      const imgURL = (info) => {
-        const p = new URLSearchParams({filename:info.filename, subfolder:info.subfolder||"", type:info.type||"temp", t:Date.now()});
-        return `${window.location.origin}/view?${p}`;
-      };
       // Single source of truth for applying a new batch to the right pane.
       // Called from the module-level "image-oasis/result" listener via the
-      // IO_HANDLERS map. Snapshots the prior batch as "previous" before
-      // overwriting so the compare slider survives across runs / tab switches.
+      // IO_HANDLERS map. Snapshots the prior viewer image as "previous" for
+      // compare, then appends each result to the history strip.
       const updatePanel = (imgs) => {
         if(!Array.isArray(imgs) || !imgs.length) return;
         if(previewInfo.length){
-          previousInfo = previewInfo;
-          previousImages = previewImages;
+          previousInfo = previewInfo.slice();
+          previousImages = previewImages.slice();
         }
-        previewInfo = imgs;                 // keep raw {filename,subfolder,type} for save
-        previewImages = imgs.map(imgURL);
-        currentBatchIdx = 0;                 // new batch → start on the first image
-        previewMeta = ""; previewSizeKB = 0; // recomputed on image load
+        for (const info of imgs) {
+          addHistoryEntry(info, { saved: (info.type || "") === "output" });
+        }
+        activeIdx = history.length - 1;
+        syncPreviewFromHistory();
         render();
+        requestAnimationFrame(() => {
+          const h = container.querySelector("[data-history]");
+          if (h) h.scrollLeft = h.scrollWidth;
+        });
       };
       // Belt-and-suspenders: Python no longer returns `{"ui": {"images": …}}`,
       // so ComfyUI's internal `executed` listener never tries to assign
@@ -2040,14 +2257,142 @@ app.registerExtension({
       };
 
       const saveOutput = async () => {
-        if(!previewInfo.length) return;
+        const e = currentEntry();
+        if (!e) return;
         try{
-          const r = await (await fetch("/image_oasis/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({images:previewInfo})})).json();
-          if(r.saved?.length){
-            previewSizeKB = r.saved.reduce((s,x)=>s+(x.size_kb||0),0);
-            previewInfo = r.saved; previewImages = r.saved.map(imgURL); render();
+          const payload = [{
+            filename: e.filename,
+            subfolder: e.subfolder || "",
+            type: e.type || "temp",
+          }];
+          const r = await (await fetch("/image_oasis/save",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({images:payload}),
+          })).json();
+          const s = r.saved?.[0];
+          if(!s){ console.warn("[Image Oasis] save returned nothing", r); return; }
+          e.filename = s.filename;
+          e.subfolder = s.subfolder || "";
+          e.type = "output";
+          e.saved = true;
+          e.savedPath = (e.subfolder ? e.subfolder + "/" : "") + e.filename;
+          e.size_kb = s.size_kb || 0;
+          e.rand = newRand();
+          syncPreviewFromHistory();
+          render();
+        }catch(err){ console.warn("[Image Oasis] save failed",err); }
+      };
+
+      const loadExternalImage = (item) => {
+        const savedPath = (item.subfolder ? item.subfolder + "/" : "") + item.filename;
+        addHistoryEntry({
+          filename: item.filename,
+          subfolder: item.subfolder || "",
+          type: "output",
+          size_kb: item.size_bytes ? Math.round(item.size_bytes / 1024) : 0,
+        }, { saved: true, external: true });
+        // Keep savedPath exact (addHistoryEntry already builds it).
+        const e = history[history.length - 1];
+        if (e) e.savedPath = savedPath;
+        activeIdx = history.length - 1;
+        syncPreviewFromHistory();
+        render();
+        requestAnimationFrame(() => {
+          const h = container.querySelector("[data-history]");
+          if (h) h.scrollLeft = h.scrollWidth;
+        });
+      };
+
+      const openPicker = async () => {
+        const overlay = document.createElement("div");
+        overlay.className = "io-picker-overlay";
+        overlay.innerHTML = `
+          <div class="io-picker">
+            <div class="io-picker-head">
+              <div class="io-picker-title">Load image into history</div>
+              <button class="io-picker-close" title="Cancel (Esc)">\u2715</button>
+            </div>
+            <div class="io-picker-search"><input type="text" placeholder="Search filename\u2026" spellcheck="false" autocomplete="off"/></div>
+            <div class="io-picker-list"><div class="io-picker-empty">Loading\u2026</div></div>
+          </div>`;
+        document.body.appendChild(overlay);
+        const searchEl = overlay.querySelector(".io-picker-search input");
+        const listEl = overlay.querySelector(".io-picker-list");
+        const closeModal = () => {
+          overlay.remove();
+          document.removeEventListener("keydown", escHandler);
+        };
+        function escHandler(ev){ if (ev.key === "Escape") { ev.stopPropagation(); closeModal(); } }
+        document.addEventListener("keydown", escHandler);
+        overlay.querySelector(".io-picker-close").onclick = closeModal;
+        overlay.onclick = (ev) => { if (ev.target === overlay) closeModal(); };
+        searchEl.focus();
+
+        let items = [];
+        try {
+          const r = await fetch("/image_oasis/list_output_images");
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          items = await r.json();
+          if (!Array.isArray(items)) items = [];
+        } catch (err) {
+          listEl.innerHTML = `<div class="io-picker-empty">Could not list output/: ${esc(err.message||err)}</div>`;
+          return;
+        }
+        const renderList = (filter) => {
+          const f = (filter || "").toLowerCase();
+          const filtered = f
+            ? items.filter(it => {
+                const path = (it.subfolder ? it.subfolder + "/" : "") + it.filename;
+                return path.toLowerCase().includes(f);
+              })
+            : items;
+          if (!filtered.length) {
+            listEl.innerHTML = `<div class="io-picker-empty">${items.length ? "No matches" : "No images in output/ yet"}</div>`;
+            return;
           }
-        }catch(e){ console.warn("[Image Oasis] save failed",e); }
+          listEl.innerHTML = filtered.map((it) => {
+            const path = (it.subfolder ? it.subfolder + "/" : "") + it.filename;
+            const origIdx = items.indexOf(it);
+            return `<div class="io-picker-row" data-idx="${origIdx}">
+              <span class="io-picker-name" title="${esc(path)}">${esc(path)}</span>
+              <span class="io-picker-meta">${fmtSize(it.size_bytes)}</span>
+            </div>`;
+          }).join("");
+          listEl.querySelectorAll(".io-picker-row").forEach(row => {
+            row.onclick = () => {
+              const idx = +row.dataset.idx;
+              closeModal();
+              loadExternalImage(items[idx]);
+            };
+          });
+        };
+        renderList("");
+        searchEl.oninput = () => renderList(searchEl.value);
+      };
+
+      const checkAlive = async (entry) => {
+        try {
+          const r = await fetch(imgURL(entry), { headers: { Range: "bytes=0-0" } });
+          return r.status !== 404;
+        } catch { return true; }
+      };
+      const pruneDead = async () => {
+        if (!history.length) return;
+        const flags = await Promise.all(history.map(checkAlive));
+        if (flags.every(Boolean)) return;
+        const activeEntry = currentEntry();
+        history = history.filter((_, i) => flags[i]);
+        if (!history.length) {
+          activeIdx = -1;
+          syncPreviewFromHistory();
+          render();
+          return;
+        }
+        const idx = activeEntry ? history.indexOf(activeEntry) : -1;
+        activeIdx = idx >= 0 ? idx : Math.min(Math.max(activeIdx, 0), history.length - 1);
+        syncPreviewFromHistory();
+        render();
       };
 
       // ── Prompt enhancer ("magic wand") ────────────────────────────────
@@ -2180,6 +2525,9 @@ app.registerExtension({
       };
 
       this.addDOMWidget("image_oasis_ui","div",container,{
+        // Stay visible at any zoom level (parity with LTX2.3 Oasis / Video
+        // Oasis Viewer) — the default hides the DOM below a zoom threshold.
+        hideOnZoom: false,
         getValue:()=>JSON.stringify({
           version:1,
           // Stable per-node UUID for side-channel result routing (read by
@@ -2189,14 +2537,27 @@ app.registerExtension({
           io_id: ensureIoId(),
           uiState:{open, taHeights},
           execState:st,
-          // Persist the output preview so switching tabs (which rebuilds the
-          // node closure) doesn't blank it. We store the raw {filename,
-          // subfolder,type} refs + known metadata, not pixels; the <img> re-
-          // resolves via /view. A temp file cleared mid-session may 404, which
-          // simply shows the empty state — no worse than before. prevInfo
-          // carries the prior batch so the compare slider survives a reload.
-          // batchIdx restores which image of the batch was being viewed.
-          preview:{ info:previewInfo, prevInfo:previousInfo, sizeKB:previewSizeKB, batchIdx:currentBatchIdx },
+          // Persist the output preview + full history strip. Temp entries may
+          // 404 after a Comfy restart; pruneDead drops those on restore.
+          // prevInfo carries the prior viewer image for the compare slider.
+          preview:{
+            info:previewInfo,
+            prevInfo:previousInfo,
+            sizeKB:previewSizeKB,
+            batchIdx:currentBatchIdx,
+            activeIdx,
+            history: history.map(e => ({
+              filename: e.filename,
+              subfolder: e.subfolder || "",
+              type: e.type || (e.saved ? "output" : "temp"),
+              size_kb: e.size_kb || 0,
+              saved: !!e.saved,
+              savedPath: e.savedPath || "",
+              external: !!e.external,
+              width: e.width || 0,
+              height: e.height || 0,
+            })),
+          },
           // Compare-feature state (item 6): toggle, slider position, and which
           // ref slot is set as the compare source (null when using "previous").
           compare:{ open:compareOpen, pct:cmpPercent, refIdx:cmpRefIdx },
@@ -2228,17 +2589,55 @@ app.registerExtension({
           if(ex&&typeof ex==="object") st={...st,...ex};
           if(ui.open) open={...open,...ui.open};
           if(ui.taHeights) taHeights={...taHeights,...ui.taHeights};
-          if(o.preview && Array.isArray(o.preview.info) && o.preview.info.length){
-            previewInfo = o.preview.info;
-            previewImages = previewInfo.map(imgURL);
+          if(o.preview && Array.isArray(o.preview.history) && o.preview.history.length){
+            history = o.preview.history.map(e => ({
+              filename: e.filename,
+              subfolder: e.subfolder || "",
+              type: e.type || (e.saved ? "output" : "temp"),
+              size_kb: e.size_kb || 0,
+              rand: newRand(),
+              saved: !!e.saved || (e.type || "") === "output",
+              savedPath: e.savedPath || (
+                (!!e.saved || (e.type || "") === "output")
+                  ? ((e.subfolder ? e.subfolder + "/" : "") + e.filename)
+                  : ""
+              ),
+              external: !!e.external,
+              width: e.width || 0,
+              height: e.height || 0,
+            }));
+            activeIdx = (typeof o.preview.activeIdx === "number")
+              ? Math.min(history.length - 1, Math.max(0, o.preview.activeIdx|0))
+              : (history.length ? history.length - 1 : -1);
+            if (!history.length) activeIdx = -1;
+            syncPreviewFromHistory();
+          } else if(o.preview && Array.isArray(o.preview.info) && o.preview.info.length){
+            // Migrate pre-history workflows: seed the strip from the last batch.
+            history = o.preview.info.map(inf => ({
+              filename: inf.filename,
+              subfolder: inf.subfolder || "",
+              type: inf.type || "temp",
+              size_kb: 0,
+              rand: newRand(),
+              saved: (inf.type || "") === "output",
+              savedPath: (inf.type || "") === "output"
+                ? ((inf.subfolder ? inf.subfolder + "/" : "") + inf.filename)
+                : "",
+              external: false,
+            }));
+            activeIdx = (typeof o.preview.batchIdx === "number")
+              ? Math.min(history.length - 1, Math.max(0, o.preview.batchIdx|0))
+              : 0;
+            syncPreviewFromHistory();
             previewSizeKB = o.preview.sizeKB || 0;
-            previewMeta = "";   // recomputed on image load
-            if(typeof o.preview.batchIdx === "number"){
-              currentBatchIdx = Math.min(previewImages.length-1, Math.max(0, o.preview.batchIdx|0));
-            }
           }
           if(o.preview && Array.isArray(o.preview.prevInfo) && o.preview.prevInfo.length){
-            previousInfo = o.preview.prevInfo;
+            previousInfo = o.preview.prevInfo.map(inf => ({
+              filename: inf.filename,
+              subfolder: inf.subfolder || "",
+              type: inf.type || "temp",
+              rand: newRand(),
+            }));
             previousImages = previousInfo.map(imgURL);
           }
           if(o.compare){
@@ -2273,6 +2672,7 @@ app.registerExtension({
           // drain applies the new batch, updatePanel snapshots the old one
           // into "previous" and the compare slider survives the round trip.
           registerIoHandler();
+          if (history.length) pruneDead();
         }catch{} },
       });
 
@@ -2357,9 +2757,9 @@ app.registerExtension({
       document.addEventListener("mousemove", _cmpMove);
       document.addEventListener("mouseup", _cmpUp);
 
-      const _origAdded = selfNode.onAdded?.bind(selfNode);
+      const _origAdded = selfNode.onAdded;
       selfNode.onAdded = function(){
-        if(_origAdded)_origAdded();
+        if(_origAdded) _origAdded.call(this);
         // Fresh-node path: a node dragged from the menu has no saved widget
         // value, so setValue never fires and this is the only registration.
         // Rebuild path: setValue runs after this, restores the saved io_id,
@@ -2368,7 +2768,7 @@ app.registerExtension({
         registerIoHandler();
         Promise.all([loadModels(), loadPresets(), loadLlmModels(), loadTheme(), loadNamedThemes()]).then(()=>render());
       };
-      const _origRemoved = selfNode.onRemoved?.bind(selfNode);
+      const _origRemoved = selfNode.onRemoved;
       selfNode.onRemoved = function(){
         // Unregister the live handler so future results stash into
         // IO_PENDING_RESULTS instead of calling into this dead closure.
@@ -2387,7 +2787,7 @@ app.registerExtension({
         IO_THEME_LISTENERS.delete(_themeRedraw);
         IO_HELP_LISTENERS.delete(_helpReady);
         if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
-        if(_origRemoved)_origRemoved();
+        if(_origRemoved) _origRemoved.call(this);
       };
     };
   },

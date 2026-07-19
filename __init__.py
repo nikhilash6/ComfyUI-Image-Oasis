@@ -1,52 +1,56 @@
 """
-Image Oasis — standalone all-in-one ComfyUI image generation node.
+Oasis Suite (Image Oasis v1.5+) — Image Oasis + Video Oasis Viewer + LTX2.3 Oasis.
 
-Composes loading, architecture-specific sampling, conditioning (text or
-Qwen-Image-Edit), a KSampler refinement chain, and optional upscale into one
-node.
+One ComfyUI custom-node pack. Subpackages keep stable node class ids:
+  ImageOasis, VideoOasisPreview, LTX23Oasis
+
+License: GPL-3.0-or-later (required by LTX Director vendored code in ltx23_oasis/).
 """
 
 import os
 import sys
 import importlib.util
 
-# Load nodes.py by absolute file path rather than a relative import.
-# ComfyUI may assign this package a module name equal to its filesystem path,
-# which makes `from .nodes import ...` resolve incorrectly. Loading by path is
-# immune to whatever __name__ ComfyUI assigns.
-
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
-
-def _load(mod_name):
-    key = f"image_oasis_{mod_name}"
-    if key in sys.modules:
-        return sys.modules[key]
-    path = os.path.join(_THIS_DIR, f"{mod_name}.py")
-    spec = importlib.util.spec_from_file_location(key, path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[key] = module
-    spec.loader.exec_module(module)
-    return module
+# Stable sys.modules keys (not the bare folder names) so a leftover
+# custom_nodes/video_oasis or custom_nodes/ltx23_oasis folder cannot shadow
+# these in-pack copies during import. Flat names (no dots) avoid needing a
+# parent namespace package for relative imports.
 
 
-_nodes = _load("nodes")
+def _load_subpackage(folder_name, sys_name):
+    """Load `./{folder_name}/__init__.py` as package `sys_name`."""
+    if sys_name in sys.modules:
+        return sys.modules[sys_name]
+    pkg_dir = os.path.join(_THIS_DIR, folder_name)
+    init_path = os.path.join(pkg_dir, "__init__.py")
+    spec = importlib.util.spec_from_file_location(
+        sys_name,
+        init_path,
+        submodule_search_locations=[pkg_dir],
+    )
+    mod = importlib.util.module_from_spec(spec)
+    mod.__path__ = [pkg_dir]
+    mod.__package__ = sys_name
+    sys.modules[sys_name] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
-# Import the HTTP route modules so their @routes decorators register on load.
-# Wrapped so a route failure never blocks the node itself from loading.
-try:
-    _load("routes")
-except Exception as _e:
-    print(f"[Image Oasis] route registration skipped: {_e}")
-try:
-    _load("routes_enhance")
-except Exception as _e:
-    print(f"[Image Oasis] enhancer route registration skipped: {_e}")
 
-NODE_CLASS_MAPPINGS = _nodes.NODE_CLASS_MAPPINGS
-NODE_DISPLAY_NAME_MAPPINGS = _nodes.NODE_DISPLAY_NAME_MAPPINGS
+_image = _load_subpackage("image_oasis", "oasis_suite_image_oasis")
+_video = _load_subpackage("video_oasis", "oasis_suite_video_oasis")
+_ltx = _load_subpackage("ltx23_oasis", "oasis_suite_ltx23_oasis")
 
-# Tell ComfyUI where the frontend JS lives.
+NODE_CLASS_MAPPINGS = {}
+NODE_DISPLAY_NAME_MAPPINGS = {}
+NODE_CLASS_MAPPINGS.update(getattr(_image, "NODE_CLASS_MAPPINGS", {}) or {})
+NODE_CLASS_MAPPINGS.update(getattr(_video, "NODE_CLASS_MAPPINGS", {}) or {})
+NODE_CLASS_MAPPINGS.update(getattr(_ltx, "NODE_CLASS_MAPPINGS", {}) or {})
+NODE_DISPLAY_NAME_MAPPINGS.update(getattr(_image, "NODE_DISPLAY_NAME_MAPPINGS", {}) or {})
+NODE_DISPLAY_NAME_MAPPINGS.update(getattr(_video, "NODE_DISPLAY_NAME_MAPPINGS", {}) or {})
+NODE_DISPLAY_NAME_MAPPINGS.update(getattr(_ltx, "NODE_DISPLAY_NAME_MAPPINGS", {}) or {})
+
 WEB_DIRECTORY = "./web"
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

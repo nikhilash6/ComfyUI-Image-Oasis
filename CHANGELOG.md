@@ -1,5 +1,155 @@
 # Changelog
 
+## v1.5.0
+
+Oasis Suite release. Two previously unreleased nodes ship in this pack for the
+first time alongside Image Oasis. Class ids stay stable:
+`ImageOasis`, `VideoOasisPreview`, `LTX23Oasis`.
+
+### Pack / suite
+
+#### Added
+- Three-node suite layout: `image_oasis/`, `video_oasis/`, `ltx23_oasis/` with
+  shared frontends under `web/` and a single root `__init__.py` registration.
+- Root README reframed as suite overview + what's new in 1.5; full per-node
+  docs live in each subfolder README (plus LTX in-node Help from
+  `ltx23_oasis/ltx23_oasis_help_content.md`).
+
+#### Changed
+- **License is now GPL-3.0-or-later** for the whole pack (required by LTX
+  Director code vendored under `ltx23_oasis/vendor/`).
+- `requirements.txt` documents optional non-pip custom nodes: **ComfyUI-GGUF**
+  (GGUF source type) and **ComfyUI-KJNodes** (LTX2 NAG for distilled negatives).
+- Registry scan hygiene for the suite publish: no `requirements.txt` GitHub
+  URLs; JS avoids the network-rule false-positive method form; CivitAI LoRA
+  lookup uses aiohttp (already used by Comfy routes) instead of urllib;
+  install docs avoid `git clone` GitHub URLs; `.comfyignore` keeps local scan
+  helpers out of the artifact.
+
+#### Notes
+- If you still have experimental `custom_nodes/video_oasis` or
+  `custom_nodes/ltx23_oasis` folders from local testing, delete them so class
+  ids are not registered twice.
+
+---
+
+### Video Oasis Viewer (new node)
+
+Preview-first Save Video replacement (`VideoOasisPreview`). Encodes to temp;
+nothing hits `output/` until Save.
+
+#### Added
+- In-node player: scrub, frame-step, mute, playback speed, Space play/pause,
+  lightbox (scroll zoom, drag pan, double-click reset).
+- Playback modes: **off → loop → cycle** (cycle walks the scene bar).
+- **Scene bar** (up to 24): recall, delete, long-press reorder, **+** load from
+  `output/`, **Save** (lossless copy + workflow metadata),
+  saved ✓ badge; history survives tab switches and reloads.
+- **Clip**: mark in `[` / out `]` then Clip -- trimmed file lands in the bar.
+- **Create Movie**: concat every *saved* bar clip; stream-copy when codec +
+  extradata match, otherwise re-encode; audio toggle with silence padding.
+- Encode UI: container / codec / quality (or custom CRF) / save prefix.
+- HTTP routes under `/video_oasis/*` (list, probe, save, clip, create-movie,
+  frame extraction).
+- Frame drag from the player onto other nodes' image inputs (same export path
+  as LTX2.3 Oasis; disabled in lightbox so pan keeps working).
+
+#### Changed
+- **Save All** removed; single **Save** matches Image Oasis (square button,
+  Accent colors, hides when the pane is empty; scene ‹ n/m › nav in the info
+  bar). Fresh spawn sizes: IO `1030×770`, LTXO `960×770`, VOV `570×770`.
+
+#### Fixed
+- Frame drag onto stock ComfyUI image nodes (Load Image and any upload-widget
+  node). The drag now carries a same-origin `/video_oasis/frame` extraction
+  URL that ComfyUI's drop pipeline accepts; previously only Oasis drop
+  targets received the frame, because Chromium clears File items from the
+  drag store once a string type is added.
+- Create Movie no longer corrupts after the first cut when mixing originals
+  with Clip outputs (extradata / SPS-PPS mismatch now forces re-encode).
+- Clip duration / FPS reporting (1-frame and bogus FPS cases).
+- Lightbox: Space play/pause and pan work without a prior click; frame-drag
+  to slots no longer steals lightbox input.
+- Registry YARA false positives cleaned for the viewer pack ahead of merge
+  (same class of issues as v1.4.1).
+
+---
+
+### LTX2.3 Oasis (new node)
+
+All-in-one LTX 2.3 generation (`LTX23Oasis`) in the Image Oasis UI shape.
+Encode / player / scene bar / Clip / Create Movie / Save use the in-pack
+Video Oasis Viewer path.
+
+#### Added
+- Text→Video and Image→Video with a single top-of-prompt mode control (drives
+  both pipeline and enhancer style).
+- **Prompt Beats**: own section; unlimited beats with local text + optional
+  guide image / strength; frame-sum meter vs Video frames; **Match frames**;
+  hover ✕ to clear a guide (no separate Clear Guides control).
+- Vendored PromptRelay / guide crop path (LTX Director) under `vendor/`.
+- **Start Frame** (I2V): upload / drop / paste; info line + ⤢ size-to-latent;
+  drag the paused player frame onto Start or a beat guide. Loading a start
+  image auto-selects Image → Video; clearing it returns to Text → Video (the
+  manual mode switch still works as normal).
+- **Continue from viewed video**: next run starts from the last frame of
+  whatever is in the viewer (scene-bar click changes the chain source).
+- **Audio** modes under Video / Audio: Off / Generate / **File** (audio-driven
+  video -- encode real audio into the latent, mux original waveform back).
+- Distilled **sigma schedule** editor with ↺ reset (Generation + Upscale
+  polish sigmas).
+- **Negative prompt** restored: CFG > 1 uses standard CFG; CFG 1 routes
+  through **LTX2 NAG** via ComfyUI-KJNodes.
+- Spatial Upsample (×2) + optional Polish pass with cached sample reuse.
+- Same player / scene bar / Clip / Create Movie / encode / Save toolkit as
+  Video Oasis Viewer (including off/loop/cycle and movie audio toggle).
+- Bypass Node / Activate Node footer (fixed under the left column).
+- Per-LoRA **CivitAI** button (by-file-hash → direct model page).
+- Presets + per-node Theme under `user/ltx23_oasis/`.
+- Cond. FPS on the Frames / FPS row; Audio control moved out of Model into
+  Video / Audio; section renames (Prompt Enhancer, Prompt Beats, Video / Audio,
+  Start Frame); save-prefix / naming unified away from legacy
+  `video_oasis_gen` / `VideoOasis_oasis_*` filenames.
+
+#### Fixed
+- `LTXVCropGuides` / guide-crop call signature mismatch on newer ComfyUI.
+- Audio-driven File mode drift over long clips (PTS / mux alignment); original
+  waveform mux keeps lip-sync with frames.
+- Scene bar vanished on ComfyUI tab switch -- widget now persists full history
+  (parity with Video Oasis Viewer); temps still prune after restart.
+- Create Movie corruption when joining Clip outputs (shared fix with Viewer).
+- Frame drag onto stock ComfyUI image nodes (shared fix with Viewer).
+- Lightbox Space / pan vs frame-drag conflict (shared fix with Viewer).
+- Clip 1-frame / FPS probe bugs (shared fix with Viewer).
+- Beat textarea sizing consistency; guide strength no longer stretches with
+  the text area.
+- Help content and docs scrubbed (em-dashes removed; beats / audio / clip /
+  movie / NAG documented).
+
+---
+
+### Image Oasis
+
+#### Added
+- History strip under the viewer (save, load-from-output, nav; image-appropriate
+  subset of the video scene-bar toolkit -- no reorder).
+- Bypass Node / Activate Node footer (fixed under the left column; same
+  mode-4 behavior as rgthree Fast Groups Bypasser).
+- Per-LoRA **CivitAI** button under strength (by-file-hash → direct model page,
+  not a search results list).
+
+#### Fixed
+- CivitAI button alignment with the strength field.
+
+---
+
+## v1.4.1
+
+### Fixed
+- Fixed two Comfy Registry YARA false positives that flagged v1.4.0 and blocked the pack from showing cleanly in Custom Node Manager: removed a GitHub URL from a `requirements.txt` comment (`contains_custom_url_dependency`), and replaced a JS method that the scanner mistook for Python network activity (`python_network_operations`).
+
+---
+
 ## v1.4
 
 ### Added

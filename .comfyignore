@@ -1,0 +1,16 @@
+# Keep registry publish artifacts free of local scan helpers / caches.
+# (Prose and helper scripts can re-trigger informational YARA rules.)
+_yara*
+_fetch*
+_dump*
+_probe*
+_extract*
+_get_*
+*.out.txt
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.git/
+.github/
+.cursor/

@@ -445,12 +445,12 @@ async def image_oasis_check_bundle(request):
 
 # ── In-node help content (item 2) ────────────────────────────────────────────
 #
-# Serves help_content.md from the package directory as raw markdown. The JS
+# Serves image_oasis_help_content.md from the package directory as raw markdown. The JS
 # fetches once on node setup and renders inline via a tiny markdown parser.
 # Layman-style content authored separately from the README so the in-node tone
 # can be friendlier than the GitHub readme.
 
-_HELP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "help_content.md")
+_HELP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "image_oasis_help_content.md")
 
 
 @routes.get("/image_oasis/input_info")
@@ -475,13 +475,135 @@ async def image_oasis_input_info(request):
         return web.json_response({"error": f"Could not read image info: {e}"}, status=500)
 
 
+# ── Output image listing (history-bar "+" picker) ───────────────────────────
+
+_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff")
+_LIST_CAP = 500
+
+
+def _walk_output_images():
+    out_root = folder_paths.get_output_directory()
+    if not os.path.isdir(out_root):
+        return []
+    results = []
+    for dirpath, _, filenames in os.walk(out_root):
+        for name in filenames:
+            if not name.lower().endswith(_IMAGE_EXTS):
+                continue
+            full = os.path.join(dirpath, name)
+            try:
+                stat = os.stat(full)
+            except OSError:
+                continue
+            rel = os.path.relpath(dirpath, out_root)
+            subfolder = "" if rel == "." else rel.replace(os.sep, "/")
+            results.append({
+                "filename": name,
+                "subfolder": subfolder,
+                "size_bytes": int(stat.st_size),
+                "mtime": float(stat.st_mtime),
+            })
+    results.sort(key=lambda r: r["mtime"], reverse=True)
+    return results[:_LIST_CAP]
+
+
+@routes.get("/image_oasis/list_output_images")
+async def image_oasis_list_output_images(request):
+    try:
+        return web.json_response(await _run_blocking(_walk_output_images))
+    except Exception as e:
+        return web.json_response({"error": f"List failed: {e}"}, status=500)
+
+
+# ── CivitAI LoRA page lookup (hash → model URL) ─────────────────────────────
+
+_LORA_SHA_MEMO = {}       # path -> (mtime_ns, size, sha256_hex)
+_CIVITAI_URL_MEMO = {}    # sha256_hex -> url string (or "" for known miss)
+
+
+def _sha256_file(path):
+    import hashlib
+    stt = os.stat(path)
+    hit = _LORA_SHA_MEMO.get(path)
+    if hit and hit[0] == stt.st_mtime_ns and hit[1] == stt.st_size:
+        return hit[2]
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    digest = h.hexdigest()
+    if len(_LORA_SHA_MEMO) > 256:
+        for k in list(_LORA_SHA_MEMO)[:128]:
+            _LORA_SHA_MEMO.pop(k, None)
+    _LORA_SHA_MEMO[path] = (stt.st_mtime_ns, stt.st_size, digest)
+    return digest
+
+
+async def _civitai_model_url_for_hash(sha256_hex):
+    """Resolve SHA256 → CivitAI model page URL, or None if unknown."""
+    import aiohttp
+    cached = _CIVITAI_URL_MEMO.get(sha256_hex)
+    if cached is not None:
+        return cached or None
+    timeout = aiohttp.ClientTimeout(total=20)
+    headers = {"User-Agent": "image-oasis/1.0"}
+    async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+        for key in (sha256_hex, sha256_hex[:10].upper()):
+            api = f"https://civitai.com/api/v1/model-versions/by-hash/{key}"
+            async with session.get(api) as resp:
+                if resp.status == 404:
+                    continue
+                if resp.status >= 400:
+                    text = await resp.text()
+                    raise RuntimeError(f"CivitAI HTTP {resp.status}: {text[:200]}")
+                data = await resp.json(content_type=None)
+            model_id = data.get("modelId")
+            version_id = data.get("id")
+            if not model_id:
+                continue
+            url = f"https://civitai.com/models/{int(model_id)}"
+            if version_id is not None:
+                url += f"?modelVersionId={int(version_id)}"
+            _CIVITAI_URL_MEMO[sha256_hex] = url
+            return url
+    _CIVITAI_URL_MEMO[sha256_hex] = ""
+    return None
+
+
+async def _lookup_civitai_lora(name):
+    path = folder_paths.get_full_path("loras", name)
+    if not path or not os.path.isfile(path):
+        raise FileNotFoundError(f"LoRA not found: {name}")
+    digest = await _run_blocking(lambda: _sha256_file(path))
+    url = await _civitai_model_url_for_hash(digest)
+    if not url:
+        raise LookupError("No CivitAI page for this file hash.")
+    return {"url": url, "sha256": digest}
+
+
+@routes.get("/image_oasis/civitai_lora")
+async def image_oasis_civitai_lora(request):
+    name = (request.rel_url.query.get("name") or "").strip().replace("\\", "/")
+    if not name or ".." in name.split("/"):
+        return web.json_response({"error": "Missing LoRA name."}, status=400)
+    try:
+        info = await _lookup_civitai_lora(name)
+    except FileNotFoundError as e:
+        return web.json_response({"error": str(e)}, status=404)
+    except LookupError as e:
+        return web.json_response({"error": str(e)}, status=404)
+    except Exception as e:
+        return web.json_response({"error": f"CivitAI lookup failed: {e}"}, status=502)
+    return web.json_response(info)
+
+
 @routes.get("/image_oasis/help")
 async def image_oasis_get_help(request):
     try:
         with open(_HELP_FILE, "r", encoding="utf-8") as f:
             text = f.read()
     except Exception:
-        text = "# Help unavailable\n\nCouldn't read `help_content.md` from the package directory."
+        text = "# Help unavailable\n\nCouldn't read `image_oasis_help_content.md` from the package directory."
     return web.Response(text=text, content_type="text/markdown", charset="utf-8")
 
 
@@ -508,10 +630,14 @@ async def image_oasis_save(request):
         for img_info in images_to_save:
             src_filename = img_info.get("filename", "")
             src_subfolder = img_info.get("subfolder", "")
+            src_type = (img_info.get("type") or "temp").strip().lower()
             # Containment check: filename/subfolder come from the client, and
             # this server has no auth — without it, `..` or an absolute path
             # could copy ANY readable image on disk into the output folder.
-            src_path = _resolve_under(temp_dir, src_subfolder, src_filename)
+            # type=output allows "save another copy" of a history entry that
+            # already lives under output/.
+            src_root = output_dir if src_type == "output" else temp_dir
+            src_path = _resolve_under(src_root, src_subfolder, src_filename)
             if not src_path or not os.path.isfile(src_path):
                 continue
             out_filename = f"{base_filename}_{counter:05}_.png"

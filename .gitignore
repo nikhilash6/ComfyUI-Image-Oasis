@@ -28,3 +28,13 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local registry / YARA scan helpers (not part of the pack)
+_yara*
+_fetch*
+_dump*
+_probe*
+_extract*
+_get_*
+*.out.txt
+_yara_rules/

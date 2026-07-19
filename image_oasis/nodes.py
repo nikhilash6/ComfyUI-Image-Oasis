@@ -54,45 +54,6 @@ validate_combo = registry.validate_combo
 import folder_paths
 
 
-def _list(*folder_names):
-    """Union of filenames across one or more ComfyUI folder types. Never throws."""
-    seen, out = set(), []
-    for name in folder_names:
-        try:
-            for f in folder_paths.get_filename_list(name):
-                if f not in seen:
-                    seen.add(f)
-                    out.append(f)
-        except Exception:
-            pass
-    return sorted(out)
-
-
-def _model_files():
-    # Union of every source type, since source_type switches between them.
-    # diffusion + gguf models live under unet / diffusion_models.
-    files = _list("checkpoints", "unet", "diffusion_models")
-    # A required combo widget needs at least one entry or ComfyUI errors.
-    return files if files else ["(no models found)"]
-
-
-def _clip_files():
-    return _list("text_encoders", "clip")
-
-
-def _vae_files():
-    return _list("vae")
-
-
-def _upscale_files():
-    return _list("upscale_models")
-
-
-def _with_blank(items):
-    """Prepend a blank '(none)' option for optional dropdowns."""
-    return ["(none)"] + items
-
-
 # ── Widget-state readers ──────────────────────────────────────────────────────
 
 import json as _json
@@ -317,8 +278,8 @@ class ImageOasis:
     NAME = "Image Oasis"
     DESCRIPTION = (
         "All-in-one image generation: switchable architecture (Flux, Qwen-Image-Edit, "
-        "SD3, AuraFlow, Krea 2), tri-source model loading, sampling patch, img2img "
-        "init, refiner pass, and optional upscale — in a single node."
+        "SD3, AuraFlow, Krea 2, Boogu-Image), tri-source model loading, sampling patch, "
+        "img2img init, refiner pass, and optional upscale — in a single node."
     )
 
     def generate(self, unique_id=None, prompt=None, extra_pnginfo=None):

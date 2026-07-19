@@ -61,6 +61,7 @@ LoRAs are little add-ons that nudge the model toward a particular style, charact
 - **Strength** - typical range 0.5-1.5. Depends on LoRA. Consult Civitai page for recommended LoRA settings.
 - **Toggle** - enables/disables without removing.
 - **Trigger words** - some LoRAs need a specific word or phrase in the prompt to activate. Type it in the trigger field under each enabled LoRA and it's automatically prepended to your positive prompt at run time. Leave blank for LoRAs that don't need a trigger. Disabled LoRAs are skipped.
+- **CivitAI** - next to the trigger field on every enabled LoRA. Hashes your local file and opens its exact CivitAI model page in a new tab - no search-results guessing, it's a by-file-hash match. Handy for checking recommended strengths and trigger words. If the file isn't on CivitAI, the error shows up in the button's tooltip.
 - **Drag handle** (9-dot grip) - reorder. LoRAs apply top to bottom, so the order matters when two LoRAs compete.
 - **✕** - delete the row.
 
@@ -280,6 +281,12 @@ The **Reset to Default** button clears all overrides - back to the default slate
 
 ---
 
+## ⏻ Bypass Node
+
+A fixed footer under the left column. Click **Bypass Node** to skip this node at execution (same as rgthree's bypass - node mode 4); the button highlights and flips to **Activate Node** to bring it back. Useful when the node sits mid-graph and you want the workflow to run without it for a pass.
+
+---
+
 ## 📤 Output (the right side)
 
 Where generated images appear.
@@ -294,15 +301,24 @@ Where generated images appear.
 ### Execution timer
 The big `MM:SS:mmm` readout glows while a run is in progress; freezes at the final time when done. It survives tab switches - even mid-generation: switch away while a run is live and the clock picks back up from the true elapsed time when you return.
 
-### Batch navigation
-When a batch returns more than one image, `‹ N/M ›` appears in the bottom-right of the footer. Click the arrows to step through them. Wraps around at both ends. The compare slider (if active) pairs by index - image *N* current vs. image *N* previous.
+### History bar
+Under the viewer is a filmstrip of recent images (up to 24):
+
+- **Dashed green border** - temp preview (not written to `output/` yet; may disappear after a ComfyUI restart).
+- **Solid green border** - saved to `output/`.
+- **Accent border** - currently loaded in the viewer.
+- **Click a thumb** - load it into the viewer.
+- **✕ on hover** - remove from the strip (does not delete the file on disk).
+- **+ tile** - load an existing image from `output/` into the strip.
+- **‹ N/M ›** in the info bar - step through history. Wraps around.
+
+Each image from a batch becomes its own thumb. 💾 Save writes the currently viewed image into `output/` and turns its border solid.
 
 ### Compare slider (the ◧ button)
 Drag the white handle to wipe between two images.
 
 - **Default:** current image vs. the previous generation. Toggle refiner or upscale on, hit ▶ Generate, then ◧ - you can drag the slider bar to preview exactly what changed.
 - **Versus a reference image:** click the ◧ next to a reference slot. The slider now compares current vs. that reference image. Click again to clear.
-- **Batches:** every image in the batch gets its own slider (paired by index) when the previous batch had the same count. They all share one slider position so you can compare the whole batch at once.
 - **Hidden:** if there's no previous and no ref toggled, the slider just doesn't appear.
 
 ---

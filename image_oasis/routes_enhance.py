@@ -326,10 +326,10 @@ def _clean(text, model_filename):
 # ── System prompts (managed by hand — do not edit programmatically) ───────────
 
 _SYS_NATURAL = (
-    "You enhance short prompts for AI image generation. "
-    "You may think through the scene, plan your approach, and reason about the best description — this is encouraged. "
+    "You enhance short prompts for AI image generation.\n"
+    "You may think through the scene, plan your approach, and reason about the best description — this is encouraged.\n"
     "The final prompt must be exactly ONE paragraph. No title. No line breaks. No headers. No multiple paragraphs.\n"
-    "WHAT TO DESCRIBE (director-style):\n"
+    "WHAT TO DESCRIBE (choose any or all based on context)(director-style):\n"
     "- Age, subject, state of dress or undress, action/pose, setting, props, set dressing, lighting direction, time of day, colors, camera angle, and lens/depth of field; do not override the user prompt.\n"
     "- Be concrete and specific rather than vague — prefer a definite descriptor over a generic one.\n"
     "- Derive every technical and stylistic choice from the SUBJECT AND CONTEXT of the input.\n"
@@ -348,10 +348,10 @@ _SYS_NATURAL = (
 )
 
 _SYS_TAGS = (
-    "You enhance short prompts for AI image generation. "
-    "You may think through the scene, plan your approach, and reason about the best description — this is encouraged. "
+    "You enhance short prompts for AI image generation.\n"
+    "You may think through the scene, plan your approach, and reason about the best description — this is encouraged.\n"
     "The final output must be exactly ONE line of comma-separated POSITIVE tags only. No title. No line breaks. No headers. No paragraphs.\n"
-    "WHAT TO TAG (director-style):\n"
+    "WHAT TO TAG (choose any or all based on context)(director-style):\n"
     "- Age, subject, state of dress or undress, action/pose, setting, props, set dressing, lighting direction, time of day, colors, camera angle, and lens/depth of field; do not override the user prompt.\n"
     "- Be concrete and specific rather than vague — prefer a definite descriptor over a generic one.\n"
     "- Derive every technical and stylistic choice from the SUBJECT AND CONTEXT of the input.\n"
@@ -370,7 +370,7 @@ _SYS_TAGS = (
 _STYLE_PROMPTS = {"natural": _SYS_NATURAL, "tags": _SYS_TAGS}
 
 # Sampling defaults — tested across the curated model set; not user-controlled.
-_TEMPERATURE = 0.5
+_TEMPERATURE = 0.6
 _TOP_P = 0.9
 _TOP_K = 40
 _REPEAT_PENALTY = 1.1

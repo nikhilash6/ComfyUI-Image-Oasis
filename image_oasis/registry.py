@@ -26,7 +26,7 @@ ALL_SOURCES = (SOURCE_CHECKPOINT, SOURCE_DIFFUSION, SOURCE_GGUF)
 
 ARCH_REGISTRY = {
     "auraflow": {
-        "label": "AuraFlow",
+        "label": "AuraFlow / Z-Image",
         "loaders": ALL_SOURCES,
         "sampling": "auraflow",
         "shift_default": 3.0,
